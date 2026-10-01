@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { formatBlogDate } from '../../lib/publishing';
 import { placeholderAttrs } from '../../lib/placeholder';
 import BlogIcon from './BlogIcon';
+import BlogMenu from './BlogMenu';
 
 /**
  * One comment in the thread.
@@ -53,24 +54,41 @@ export default function BlogComment({ comment, onOpenHighlight }) {
           </span>
         )}
 
-        <p className="blog-comment-who">
-          <span className="blog-comment-name">{author.name || 'Reader'}</span>
-          {author.pronouns ? (
-            <span className="blog-comment-pronouns">{author.pronouns}</span>
-          ) : null}
+        {/* The reference stacks these: name and pronoun share a line, the date
+            sits under them. Run together on one wrapping line the date reads as
+            part of the name on a narrow column. */}
+        <div className="blog-comment-who">
+          <p className="blog-comment-identity">
+            <span className="blog-comment-name">{author.name || 'Reader'}</span>
+            {author.pronouns ? (
+              <span className="blog-comment-pronouns">{author.pronouns}</span>
+            ) : null}
+          </p>
           {comment.publishedAt ? (
             <time className="blog-comment-date" dateTime={comment.publishedAt}>
               {formatBlogDate(comment.publishedAt)}
             </time>
           ) : null}
-        </p>
+        </div>
 
-        <button
+        {/* Reporting needs a session like every other action here, so signed out
+            the item is announced as disabled and sends the reader to log in.
+            NOT PERSISTED: there is no moderation endpoint. */}
+        <BlogMenu
+          label={`More options for ${author.name || 'this comment'}`}
           className="blog-comment-more"
-          {...control(`More options for ${author.name || 'this comment'}`)}
-        >
-          <BlogIcon name="more" size={20} />
-        </button>
+          items={[
+            {
+              id: 'report',
+              label: 'Report this comment',
+              danger: true,
+              disabled: locked,
+              onSelect: () => {
+                if (locked) router.push('/users/login');
+              },
+            },
+          ]}
+        />
       </header>
 
       {comment.highlight ? (
@@ -98,12 +116,12 @@ export default function BlogComment({ comment, onOpenHighlight }) {
 
       <div className="blog-comment-actions">
         <button className="blog-comment-action" {...control(`Like this comment, ${comment.likes ?? 0} so far`)}>
-          <BlogIcon name="favorite" size={20} />
+          <BlogIcon name="favorite" size={24} />
           <span {...placeholderAttrs('comment.likes')}>{comment.likes ?? 0}</span>
         </button>
 
         <button className="blog-comment-action" {...control(`Read ${comment.replies ?? 0} replies`)}>
-          <BlogIcon name="chat" size={20} />
+          <BlogIcon name="chat" size={24} />
           <span {...placeholderAttrs('comment.replies')}>{comment.replies ?? 0}</span>
         </button>
 

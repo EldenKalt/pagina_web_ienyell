@@ -22,7 +22,15 @@ import BlogPostActions from './BlogPostActions';
  *     check warns in development if it ever does.
  */
 
-export default function BlogPostHeader({ post, stats, onOpenComments }) {
+export default function BlogPostHeader({
+  post,
+  stats,
+  onOpenComments,
+  saved,
+  onToggleSave,
+  highlightsHidden,
+  onToggleHighlights,
+}) {
   const titleRef = useRef(null);
   const patreonRef = useRef(null);
 
@@ -89,7 +97,18 @@ export default function BlogPostHeader({ post, stats, onOpenComments }) {
         </p>
       </div>
 
-      <BlogPostActions stats={stats || post?.stats} onOpenComments={onOpenComments} />
+      {/* Every piece of state the bar shows is owned by the page, because this
+          bar and the one below the article are the same bar twice. The header
+          used to swallow these props, which left the bookmark up here inert and
+          out of step with the tools panel. */}
+      <BlogPostActions
+        stats={stats || post?.stats}
+        onOpenComments={onOpenComments}
+        saved={saved}
+        onToggleSave={onToggleSave}
+        highlightsHidden={highlightsHidden}
+        onToggleHighlights={onToggleHighlights}
+      />
     </header>
   );
 }

@@ -53,6 +53,11 @@ export default function BlogPostPage() {
   // One bookmark shown in two places — the action bar and the tools panel — so
   // the state sits above both. Not persisted: there is no bookmarks endpoint.
   const [saved, setSaved] = useState(false);
+  // Hiding the inline highlights is a reading preference the action bar offers
+  // from its "..." menu. It sits here for the same reason `saved` does: the bar
+  // renders twice and the two copies must not disagree. NOT WIRED — the
+  // annotation layer that would read it has not been built.
+  const [highlightsHidden, setHighlightsHidden] = useState(false);
 
   const relatedPosts = Array.isArray(post?.relatedPosts) ? post.relatedPosts : [];
   const previousPost = post?.previousPost || null;
@@ -152,6 +157,8 @@ export default function BlogPostPage() {
               onOpenComments={() => setCommentsOpen(true)}
               saved={saved}
               onToggleSave={() => setSaved((v) => !v)}
+              highlightsHidden={highlightsHidden}
+              onToggleHighlights={() => setHighlightsHidden((v) => !v)}
             />
 
             <BlogPostRail post={post} outline={outline} />
@@ -182,6 +189,8 @@ export default function BlogPostPage() {
                 onOpenComments={() => setCommentsOpen(true)}
                 saved={saved}
                 onToggleSave={() => setSaved((v) => !v)}
+                highlightsHidden={highlightsHidden}
+                onToggleHighlights={() => setHighlightsHidden((v) => !v)}
               />
 
               <BlogPostAuthor author={post.author} />

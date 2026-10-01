@@ -72,6 +72,12 @@ export default function SidePanel({ open, onClose, title, description, titleId =
 
     const onKeyDown = (event) => {
       if (event.key === 'Escape') {
+        // Escape belongs to the innermost open layer. This listener is on
+        // document in the capture phase, so it sees the key before anything
+        // inside the panel does and would otherwise close the whole panel while
+        // the reader only meant to dismiss a menu open within it — the "..."
+        // menu on a comment, today. That menu closes itself; the panel stays.
+        if (panelRef.current?.querySelector('[role="menu"]')) return;
         event.stopPropagation();
         onClose?.();
         return;

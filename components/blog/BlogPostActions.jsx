@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { placeholderAttrs } from '../../lib/placeholder';
 import BlogIcon from './BlogIcon';
+import BlogMenu from './BlogMenu';
 
 /**
  * The action bar that sits under the post byline: reactions, comments and share on
@@ -34,6 +35,8 @@ export default function BlogPostActions({
   onOpenComments,
   saved = false,
   onToggleSave,
+  highlightsHidden = false,
+  onToggleHighlights,
 }) {
   const { user, isLoading } = useAuth();
   const router = useRouter();
@@ -115,12 +118,33 @@ export default function BlogPostActions({
           <BlogIcon name="play" />
         </button>
 
-        <button
+        {/* Hiding the highlights is a reading preference, not an account action,
+            so it is open to everyone. It is lifted to the page because this bar
+            is rendered twice and both copies must report the same state.
+            NOT WIRED: the annotation layer that reads it does not exist yet. */}
+        <BlogMenu
+          label="More options for this post"
           className="blog-post-action blog-post-action--icon"
-          {...control('More options')}
-        >
-          <BlogIcon name="more" />
-        </button>
+          items={[
+            {
+              id: 'highlights',
+              type: 'checkbox',
+              label: highlightsHidden ? 'Show highlights' : 'Hide highlights',
+              checked: highlightsHidden,
+              onSelect: onToggleHighlights,
+            },
+            {
+              id: 'feedback',
+              type: 'link',
+              accent: true,
+              label: 'Give me feedback',
+              // (Expected destination: the author's contact surface. There is no
+              // feedback form in the project, so this points at the links hub the
+              // author card already sends readers to.)
+              href: '/links',
+            },
+          ]}
+        />
       </div>
     </div>
   );
