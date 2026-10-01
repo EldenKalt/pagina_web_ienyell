@@ -62,7 +62,20 @@ export default function BlogPostPage() {
   // NOT PERSISTED. The painted annotations come from the placeholder file during
   // the UI phase; lib/annotations resolves them against the rendered article, so
   // what is exercised here is the real anchoring, only the source is mock.
-  const highlights = useMemo(() => getPlaceholderHighlights(), []);
+  // State, not a memo: the selection toolbar adds to it. NOT PERSISTED — a
+  // highlight made here lives until the page is reloaded. Storage is the next
+  // piece; what this exercises today is the anchoring and the painting.
+  const [highlights, setHighlights] = useState(() => getPlaceholderHighlights());
+  // The passage a note is being written about, or null for a note on the post
+  // as a whole.
+  const [noteAnchor, setNoteAnchor] = useState(null);
+
+  const addHighlight = (selector) => {
+    setHighlights((current) => [
+      ...current,
+      { id: `local-${Date.now()}`, mine: true, count: 1, selector },
+    ]);
+  };
 
   const relatedPosts = Array.isArray(post?.relatedPosts) ? post.relatedPosts : [];
   const previousPost = post?.previousPost || null;
@@ -181,6 +194,18 @@ export default function BlogPostPage() {
                 highlights={highlights}
                 highlightsHidden={highlightsHidden}
                 onOpenHighlight={(id, text) => setHighlightFragment(text)}
+                onHighlight={addHighlight}
+                // Commenting on a passage highlights it too: a comment anchored
+                // to text nobody can see the boundaries of is a comment about
+                // nothing in particular.
+                onComment={(selector, text) => {
+                  addHighlight(selector);
+                  setHighlightFragment(text);
+                }}
+                onNote={(selector, text) => {
+                  setNoteAnchor(text);
+                  setNotesOpen(true);
+                }}
               />
 
               {/* Chapter navigation replaces the older prev / back / next row:
@@ -237,8 +262,12 @@ export default function BlogPostPage() {
             />
 
             <BlogNotesPanel
+              anchor={noteAnchor}
               open={notesOpen}
-              onClose={() => setNotesOpen(false)}
+              onClose={() => {
+                setNotesOpen(false);
+                setNoteAnchor(null);
+              }}
               slug={slug}
             />
 

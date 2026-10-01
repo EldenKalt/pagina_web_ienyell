@@ -110,12 +110,14 @@ export default function BlogMenu({
 
     document.addEventListener('pointerdown', onPointerDown);
     document.addEventListener('keydown', onKeyDown);
-    document.addEventListener('scroll', onScroll, true);
+    // window, not document: a capture listener on document is not called for a
+    // page scroll. Same correction as the selection toolbar.
+    window.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', onScroll);
     return () => {
       document.removeEventListener('pointerdown', onPointerDown);
       document.removeEventListener('keydown', onKeyDown);
-      document.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', onScroll);
     };
   }, [open, close]);

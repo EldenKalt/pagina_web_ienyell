@@ -19,7 +19,7 @@ import BlogNote from './BlogNote';
  * NOT PERSISTED. lib/notes.js reads the placeholder file today and the API later;
  * creating a note clears the form and stores nothing.
  */
-export default function BlogNotesPanel({ open, onClose, slug }) {
+export default function BlogNotesPanel({ open, onClose, slug, anchor }) {
   const { user, isLoading } = useAuth();
   const router = useRouter();
   const [notes, setNotes] = useState([]);
@@ -79,6 +79,15 @@ export default function BlogNotesPanel({ open, onClose, slug }) {
           All your notes are kept on{' '}
           <Link href="/users/profile">your profile</Link>.
         </p>
+
+        {/* The passage the note is about, when it was started from a selection.
+            A note without one belongs to the post as a whole and has no margin
+            position — see data/blogPlaceholderNotes.js. */}
+        {anchor ? (
+          <blockquote className="blog-note-anchor">
+            <p>{anchor}</p>
+          </blockquote>
+        ) : null}
 
         <div className="blog-comment-head">
           {user?.avatarUrl ? (

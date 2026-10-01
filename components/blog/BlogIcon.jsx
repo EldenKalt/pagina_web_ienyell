@@ -51,6 +51,26 @@ const PATHS = {
       <circle cx="19" cy="12" r="1.3" fill="currentColor" stroke="none" />
     </>
   ),
+  // The three the selection toolbar needs.
+  highlight: (
+    <>
+      <path d="M4 20h16" strokeWidth="2.4" />
+      <path d="M8.5 15.5 6 16.5l1-2.5 7.6-7.6a1.8 1.8 0 0 1 2.5 0l.5.5a1.8 1.8 0 0 1 0 2.5Z" />
+    </>
+  ),
+  note: (
+    <>
+      <path d="M5 4h9l5 5v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z" />
+      <polyline points="14 4 14 9 19 9" />
+      <path d="M8 13h7M8 17h4" />
+    </>
+  ),
+  copy: (
+    <>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+    </>
+  ),
   // The document glyph BlogCard already draws when a post has no cover. Moved
   // here so the recommendation card can show the same fallback without a second
   // copy of the paths; BlogCard keeps its own inline copy untouched.

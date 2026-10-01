@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { fontsReady, measureText, readTextStyle } from '../../lib/pretext';
 import { applyOutlineIds } from '../../lib/blogOutline';
 import { indexText, resolveSelector } from '../../lib/annotations';
+import BlogSelectionToolbar from './BlogSelectionToolbar';
 import {
   segmentHighlights,
   paintHighlights,
@@ -83,6 +84,9 @@ export default function BlogPostBody({
   highlights = [],
   highlightsHidden = false,
   onOpenHighlight,
+  onHighlight,
+  onComment,
+  onNote,
 }) {
   const contentRef = useRef(null);
   const blocksRef = useRef([]);
@@ -261,6 +265,7 @@ export default function BlogPostBody({
   };
 
   return (
+    <>
     <div
       ref={contentRef}
       className="blog-content"
@@ -274,5 +279,17 @@ export default function BlogPostBody({
       }}
       dangerouslySetInnerHTML={markup}
     />
+
+    {/* Rendered here rather than by the page so the article element stays
+        private to this component: the toolbar needs the ref to scope the
+        selection to the body, and the page only needs to say what the actions
+        do. */}
+    <BlogSelectionToolbar
+      rootRef={contentRef}
+      onHighlight={onHighlight}
+      onComment={onComment}
+      onNote={onNote}
+    />
+    </>
   );
 }
