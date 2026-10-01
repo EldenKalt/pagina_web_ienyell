@@ -165,7 +165,11 @@ export const BLOG_PLACEHOLDER_POSTS = [
     // EDGE CASE: very long title — exercises the card title clamp
     excerpt:
       'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip.',
-    coverUrl: '/recursos/hero-characters.png',
+    // hero-characters.png and hero-portraits.png are transparent vertical
+    // cut-outs of the home hero art: in any landscape cover crop the visible
+    // band is empty, so the card showed its own background and read as a failed
+    // image. Measured at 0% opaque pixels. These two render.
+    coverUrl: '/recursos/image_placeholder_post_1.jpg',
     content: `
       <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
       <h2>Lorem ipsum sectione</h2>
@@ -318,7 +322,7 @@ export const BLOG_PLACEHOLDER_POSTS = [
     title: 'Lorem ipsum reprehenderit in voluptate velit',
     excerpt:
       'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim.',
-    coverUrl: '/recursos/hero-portraits.png',
+    coverUrl: '/recursos/image_placeholder_post_2.jpg',
     content: `
       <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
       <h2>Lorem ipsum sectione prima</h2>
