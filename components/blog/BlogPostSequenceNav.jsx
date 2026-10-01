@@ -7,6 +7,9 @@ import Link from 'next/link';
  * when it does not — decided in the data layer, not here, so this component
  * renders whichever it is given.
  *
+ * No arrows: the node draws label-only buttons, and "Previous post" / "Next
+ * post" already say which way they go.
+ *
  * Nothing here says "chapter". The word belongs to the literary side of the site
  * — books have real chapters — and using it for blog posts too would make the
  * two mean different things in different places. A post inside a series is
@@ -26,9 +29,6 @@ export default function BlogPostSequenceNav({ sequence, previousPost, nextPost }
     <nav className="blog-post-seq-nav" aria-label="Post navigation">
       {previousPost ? (
         <Link className="blog-post-seq-btn" href={`/blog/${previousPost.slug}`}>
-          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M15 8H2M7 3L2 8l5 5" />
-          </svg>
           <span>Previous post</span>
           <span className="sr-only">: {previousPost.title}</span>
         </Link>
@@ -59,9 +59,6 @@ export default function BlogPostSequenceNav({ sequence, previousPost, nextPost }
         <Link className="blog-post-seq-btn blog-post-seq-btn--next" href={`/blog/${nextPost.slug}`}>
           <span>Next post</span>
           <span className="sr-only">: {nextPost.title}</span>
-          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M1 8h13M9 3l5 5-5 5" />
-          </svg>
         </Link>
       ) : (
         <span className="blog-post-seq-btn is-empty" aria-hidden="true" />

@@ -37,6 +37,9 @@ export default function BlogPostIndex({ outline = [], title }) {
               <a className="blog-post-index-link" href={`#${section.id}`}>
                 {section.text}
               </a>
+              {section.excerpt ? (
+                <p className="blog-post-index-excerpt">{section.excerpt}</p>
+              ) : null}
 
               {section.children.length ? (
                 <ol className="blog-post-index-list blog-post-index-list--nested">

@@ -11,6 +11,8 @@
   --accent: #fa5f07;      /* brand orange */
   --accent-dark: #e04e00; /* brand orange, hover / pressed */
   --accent-tint: #fff7f2; /* faint orange wash */
+  --blog-error: #dc3545;  /* destructive / error. Promoted from .blog-public-error,
+                             where it was declared locally; same value, now reusable */
 
   /* Typography. The serif is applied ONLY to .blog-content (the article body on
      /blog/[slug]). Everything else on the site stays on Inter. */
@@ -4449,7 +4451,6 @@ button.srv-tool-card { font: inherit; }
 
 /* ── Blog — error ── */
 .blog-public-error {
-  --blog-error: #dc3545;
   padding: 12px 14px;
   border: 1px solid var(--blog-error);
   border-radius: 6px;
@@ -5061,19 +5062,104 @@ button.srv-tool-card { font: inherit; }
   gap: 10px;
 }
 
-/* Chapter index */
+/* The "..." menu, shared by the post action bar and the comment header.
+   Anchored to its trigger rather than portalled, so the comment menu travels
+   with its comment inside the scrolling off-canvas. Right-aligned by default:
+   the trigger sits at the right edge of both surfaces, and .side-panel-body
+   scrolls, so a menu growing outwards would be clipped. */
+/* Fixed and portalled to the body: see BlogMenu for why. z-index sits above the
+   off-canvas (1100) because a menu can be opened from inside one. */
+.blog-menu-list {
+  position: fixed;
+  z-index: 1200;
+  display: grid;
+  min-width: 13.75rem;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+}
+.blog-menu-item {
+  display: block;
+  width: 100%;
+  /* A comfortable target without the 44px the icon controls need: these are
+     rows in a list, read in one pass, not controls hunted for individually. */
+  min-height: 40px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.blog-menu-item:hover {
+  background: var(--surface);
+  color: var(--ink);
+}
+.blog-menu-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* The checked state is carried by aria-checked; this is only its visible half. */
+.blog-menu-item[aria-checked='true']::after {
+  content: '';
+  float: right;
+  width: 7px;
+  height: 12px;
+  margin: 3px 2px 0 8px;
+  border: solid currentColor;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+/* Reporting is destructive, so it takes the blog's error red rather than the
+   brand orange — which the feedback item next to it now uses, and two orange
+   rows would read as the same kind of action. */
+.blog-menu-item--danger {
+  color: var(--blog-error);
+}
+.blog-menu-item--danger:hover {
+  background: color-mix(in srgb, var(--blog-error) 8%, var(--paper));
+  color: var(--blog-error);
+}
+.blog-menu-item--accent {
+  color: var(--accent-dark);
+}
+.blog-menu-item--accent:hover {
+  background: var(--accent-tint);
+  color: var(--accent-dark);
+}
+.blog-menu-item[aria-disabled='true'] {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+/* Chapter index.
+   The reference draws it as a bulleted tree — a disc on every entry and a fixed
+   indent per level — not as a plain list with a rule down the side. The discs
+   are what make the nesting readable at a glance in a column this narrow. */
 .blog-post-index-list {
   display: grid;
   gap: 8px;
   margin: 0;
-  padding: 0;
-  list-style: none;
+  padding-left: 20px;
+  list-style: disc;
   counter-reset: blog-index;
+}
+/* The discs take the list's own grey, as the reference does. Set to --line they
+   were technically present and visually gone, which is the same as not having
+   them. */
+.blog-post-index-list li::marker {
+  color: var(--text-muted);
 }
 .blog-post-index-list--nested {
   margin-top: 8px;
-  padding-left: 14px;
-  border-left: 1px solid var(--line);
+  padding-left: 20px;
 }
 .blog-post-index-link {
   display: block;
@@ -5153,39 +5239,46 @@ button.srv-tool-card { font: inherit; }
   cursor: help;
 }
 
-/* Chapter navigation */
+/* Sequence navigation — node 185:1198. Label-only buttons; the node draws no
+   arrows. "prev" is outlined, "next" is filled, and the counter sits between
+   them with the menu icon that leads to the archive. */
 .blog-post-seq-nav {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
   margin: 40px 0 8px;
 }
 .blog-post-seq-btn {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  padding: 10px 20px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--ink-soft);
-  font-size: 15px;
+  justify-content: center;
+  /* The node pads the two buttons differently — 5px on prev, 13px on next —
+     which leaves neighbours of different heights. Equalised at the taller value,
+     which also clears the 44px touch floor the node does not state. */
+  min-height: 52px;
+  padding: 5px 30px;
+  border: 2px solid var(--text-muted);
+  border-radius: 30px;
+  color: var(--text-muted);
+  font-size: clamp(17px, 1rem + 0.3vw, 20px);
   font-weight: 500;
   white-space: nowrap;
   transition: border-color 180ms ease, background-color 180ms ease, color 180ms ease;
 }
 .blog-post-seq-btn:hover {
-  border-color: var(--ink-soft);
+  border-color: var(--ink);
   color: var(--ink);
 }
 .blog-post-seq-btn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-/* The next control is the emphasised one: forward is the direction a reader
-   who has finished the article is most likely to want. */
+/* The filled one is the forward direction, which is where a reader who has
+   finished the article is most likely to go. */
 .blog-post-seq-btn--next {
+  padding: 5px 30px;
   border-color: var(--ink);
   background: var(--ink);
   color: var(--paper);
@@ -5204,11 +5297,12 @@ button.srv-tool-card { font: inherit; }
 .blog-post-seq-count {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  padding: 10px;
+  gap: 10px;
+  min-height: 52px;
+  padding: 5px 30px;
   color: var(--text-muted);
-  font-size: 15px;
+  font-size: clamp(17px, 1rem + 0.3vw, 20px);
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   transition: color 180ms ease;
 }
@@ -5782,11 +5876,15 @@ button.srv-tool-card { font: inherit; }
 .blog-comments-list {
   display: grid;
 }
+/* The reference gives each comment 58px of air above and below and separates
+   them with Gray/400. 58 twice over is 116px between two comments, which is more
+   than a thread needs on a phone, so the rhythm is taken as fluid: still clearly
+   roomier than the 24px it had, without the desktop figure on a small screen. */
 .blog-comment {
   display: grid;
-  gap: 12px;
-  padding: 24px 0;
-  border-top: 1px solid var(--line-2);
+  gap: 16px;
+  padding: clamp(24px, 3vw, 40px) 0;
+  border-top: 1px solid var(--line);
 }
 .blog-comment-head {
   display: flex;
@@ -5810,15 +5908,22 @@ button.srv-tool-card { font: inherit; }
   font-weight: 700;
   text-transform: uppercase;
 }
+/* Two lines, as in the reference: name and pronoun, then the date beneath. */
 .blog-comment-who {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 10px;
+  display: grid;
+  gap: 3px;
   margin: 0;
   min-width: 0;
   flex: 1 1 auto;
-  font-size: 14px;
+  font-size: 15px;
+}
+.blog-comment-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 7px;
+  margin: 0;
+  min-width: 0;
 }
 .blog-comment-name {
   color: var(--ink);
@@ -5868,7 +5973,12 @@ button.srv-tool-card { font: inherit; }
   padding: 2px 0;
   background: rgba(154, 194, 255, 0.5);
   color: var(--ink);
-  font-size: 15px;
+  /* The reference sets the quoted fragment in the article's own body style, so
+     it reads as a piece of the page with the highlight still on it rather than
+     as a caption. Here that means the body serif, at a size that stays a quote
+     inside a comment. */
+  font-family: var(--font-serif);
+  font-size: 17px;
   line-height: 1.7;
 }
 /* The quote becomes a control where the fragment's own panel can be opened. */
@@ -5893,7 +6003,12 @@ button.srv-tool-card { font: inherit; }
   padding: 2px 0;
   background: rgba(154, 194, 255, 0.5);
   color: var(--ink);
-  font-size: 15px;
+  /* The reference sets the quoted fragment in the article's own body style, so
+     it reads as a piece of the page with the highlight still on it rather than
+     as a caption. Here that means the body serif, at a size that stays a quote
+     inside a comment. */
+  font-family: var(--font-serif);
+  font-size: 17px;
   line-height: 1.7;
 }
 .blog-highlight-quote {
@@ -5988,21 +6103,27 @@ button.srv-tool-card { font: inherit; }
 .blog-comment-reply {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  /* The reference sets the 24px icon 10px away from its count. */
+  gap: 10px;
   min-height: 44px;
   padding: 10px;
   border: 0;
   border-radius: 10px;
   background: none;
+  /* The reference puts these counts in Gray/500, which is 2.2:1 on white.
+     --text-muted carries the same role at a contrast that passes. */
   color: var(--text-muted);
   font: inherit;
-  font-size: 14px;
+  font-size: 16px;
   cursor: pointer;
   transition: color 180ms ease, background-color 180ms ease;
 }
+/* Regular weight and the body size in the reference; the underline is what
+   marks it as the control, not extra weight. */
 .blog-comment-reply {
-  color: var(--ink);
-  font-weight: 600;
+  color: var(--ink-2);
+  font-size: 16px;
+  font-weight: 400;
   text-decoration: underline;
   text-underline-offset: 4px;
 }
@@ -6070,17 +6191,28 @@ button.srv-tool-card { font: inherit; }
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+/* align-content: start on both grids, or the rows stretch. The list gives every
+   card in a row the same height; a card whose content is shorter than its
+   neighbour then spreads that surplus between its own rows, and the gaps between
+   the date, the title, the excerpt and the counts open up until the card reads
+   as broken. The surplus belongs at the foot of the card instead. */
 .blog-rec-card {
   position: relative;
   display: grid;
+  align-content: start;
   gap: 10px;
   min-width: 0;
 }
+/* The node draws the cover at 420x230 in the grid and 248x142 in the rail — 1.83
+   and 1.75. 16/9 sits between the two, so one ratio serves both variants.
+   The radius is NOT in the node, which leaves the cover square; it is kept here
+   because the rounded covers were approved for the blog and are used by every
+   other card on the landing and the archive. */
 .blog-rec-thumb {
   overflow: hidden;
   border-radius: 14px;
   background: var(--surface);
-  aspect-ratio: 16 / 10;
+  aspect-ratio: 16 / 9;
 }
 .blog-rec-thumb img {
   width: 100%;
@@ -6091,11 +6223,20 @@ button.srv-tool-card { font: inherit; }
 .blog-rec-card:hover .blog-rec-thumb img {
   transform: scale(1.03);
 }
+/* A card with nowhere to go does not answer the pointer: the zoom is the signal
+   that the cover is a way in, and here there is none. */
+.blog-rec-card--static:hover .blog-rec-thumb img {
+  transform: none;
+}
 .blog-rec-body {
   display: grid;
-  gap: 6px;
+  align-content: start;
+  gap: 8px;
   min-width: 0;
 }
+/* The node sets this row in black at 10px. 10px is below the size this project
+   uses for any real text, and black would make the dates compete with the title
+   they sit above, so it stays at the muted 12px the other cards use. */
 .blog-rec-meta {
   margin: 0;
   color: var(--text-muted);
@@ -6109,7 +6250,8 @@ button.srv-tool-card { font: inherit; }
   margin: 0;
   color: var(--ink);
   font-size: 16px;
-  font-weight: 600;
+  /* Bold in the node, where the card title is the one bold thing on it. */
+  font-weight: 700;
   line-height: 1.3;
 }
 .blog-rec-excerpt {
@@ -6162,10 +6304,12 @@ button.srv-tool-card { font: inherit; }
   color: var(--text-muted);
   font-size: 13px;
 }
+/* The node separates each icon from its count by 10px, which is what keeps the
+   three pairs legible as pairs rather than as six loose items. */
 .blog-rec-stats li {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 8px;
 }
 
 /* Single column is the default: the two-column reading layout only has room
@@ -6236,10 +6380,14 @@ button.srv-tool-card { font: inherit; }
     grid-row: 2;
   }
   /* Full width, below both columns: nothing else may sit in column 1, or it
-     would slide under the pinned rail. */
+     would slide under the pinned rail.
+
+     The row is left to auto-placement on purpose. There is more than one footer
+     section — related posts and courses both carry this class — and naming row 3
+     put every one of them in the same cell, drawn on top of each other. Rows 1
+     and 2 are stated, so these flow into 3, 4 and onwards in DOM order. */
   .has-rail > .blog-post-related {
     grid-column: 1 / -1;
-    grid-row: 3;
   }
 }
 
