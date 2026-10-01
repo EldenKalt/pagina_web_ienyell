@@ -1,0 +1,943 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id                   Int                    @id @default(autoincrement())
+  email                String                 @unique
+  passwordHash         String?
+  googleId             String?                @unique
+  role                 Role
+  name                 String
+  phone                String?
+  company              String?
+  isActive             Boolean                @default(true)
+  tags                 String[]               @default([])
+  rating               Int?
+  discountTier         String?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  enabledFeatures      String[]               @default([])
+  onvoSubAccountId     String?
+  onvoCustomerId       String?                @unique
+  onvoPaymentMethodId  String?
+  morosoSince          DateTime?
+  morosoLiftedAt       DateTime?
+  resetToken           String?
+  resetTokenExpiry     DateTime?
+  products             ClientProduct[]
+  registeredEntries    HourEntry[]            @relation("HourEntryRegisteredBy")
+  notifications        Notification[]
+  conversations        Conversation[]         @relation("ClientConversations")
+  assignedConversations Conversation[]        @relation("ConversationAgent")
+  sentMessages         Message[]              @relation("MessageSender")
+  tickets              Ticket[]               @relation("ClientTickets")
+  assignedTickets      Ticket[]               @relation("TicketAgent")
+  ticketMessages       TicketMessage[]        @relation("TicketMessageSender")
+  ticketCallRequests   TicketCallRequest[]    @relation("TicketCallRequestsByAdmin")
+  blogPosts            BlogPost[]             @relation("BlogAuthor")
+  discountCodesCreated DiscountCode[]         @relation("CodeCreator")
+  discountUsages       DiscountUsage[]        @relation("CodeUsages")
+  referralsSent        Referral[]             @relation("Referrer")
+  referredBy           Referral[]             @relation("Referred")
+  projects             Project[]              @relation("ClientProjects")
+  hourBookings         HourBooking[]          @relation("HourBookings")
+  orders               Order[]                @relation("ClientOrders")
+  uploadedDownloadFiles ProductDownloadFile[] @relation("DownloadFileUploader")
+  clientDownloads      ClientDownload[]       @relation("ClientDownloads")
+  cartOrders           CartOrder[]            @relation("CartOrders")
+  providerProducts     Product[]              @relation("ProviderProducts")
+  providerPayouts      ProviderPayout[]       @relation("ProviderPayouts")
+  assignedTasks        ProjectTask[]          @relation("TaskAssignee")
+  assignedAgentId      Int?
+  assignedAgent        User?                  @relation("AssignedAgent", fields: [assignedAgentId], references: [id], onDelete: SetNull)
+  agentClients         User[]                 @relation("AssignedAgent")
+  installmentPlans     InstallmentPlan[]      @relation("ClientInstallmentPlans")
+  clientCollaborators     ClientCollaborator[] @relation("ClientCollaborators")
+  collaboratorAssignments ClientCollaborator[] @relation("CollaboratorClients")
+}
+
+model Product {
+  id             Int                  @id @default(autoincrement())
+  name           String
+  category       ProductCategory
+  type           ProductType          @default(SERVICIO)
+  launchPrice    Decimal
+  regularPrice   Decimal?
+  description    String?
+  details        String?
+  specificationsUrl String?
+  isActive       Boolean              @default(true)
+  features       String[]
+  tags                String[]             @default([])
+  proveedorId         Int?
+  proveedor           User?                @relation("ProviderProducts", fields: [proveedorId], references: [id], onDelete: SetNull)
+  comisionUtil        Float                @default(0)
+  porcentajeHacienda  Float                @default(0)
+  revisionEnabled      Boolean              @default(false)
+  includedRevisions    Int                  @default(0)
+  extraRevisionPrice   Decimal              @default(0)
+  providerPayouts     ProviderPayout[]
+  clientProducts      ClientProduct[]
+  orders         Order[]
+  downloadFile   ProductDownloadFile?
+  clientDownloads ClientDownload[]   @relation("ProductClientDownloads")
+  cartItems       CartOrderItem[]    @relation("CartItems")
+  subscribable         Boolean              @default(false)
+  subscriptionInterval SubscriptionInterval?
+  addOns          ProductAddOn[]
+  questions       ProductQuestion[]
+  images          ProductImage[]
+}
+
+model ProductImage {
+  id        Int      @id @default(autoincrement())
+  productId Int
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  isMain    Boolean  @default(false)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+}
+
+model ProductDownloadFile {
+  id           Int      @id @default(autoincrement())
+  productId    Int?     @unique
+  product      Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  fileUrl      String
+  fileName     String
+  fileSize     Int?
+  version      String?
+  uploadedById Int
+  uploadedBy   User     @relation("DownloadFileUploader", fields: [uploadedById], references: [id])
+  clientDownloads ClientDownload[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model ClientDownload {
+  id             Int        @id @default(autoincrement())
+  clientId       Int
+  client         User       @relation("ClientDownloads", fields: [clientId], references: [id])
+  productId      Int?
+  product        Product?   @relation("ProductClientDownloads", fields: [productId], references: [id], onDelete: SetNull)
+  downloadFileId Int?
+  downloadFile   ProductDownloadFile? @relation(fields: [downloadFileId], references: [id], onDelete: SetNull)
+  status         DownloadAccessStatus @default(ACTIVE)
+  notes          String?
+  orderId        Int?
+  order          Order?     @relation("OrderDownloads", fields: [orderId], references: [id])
+  cartOrderId    Int?
+  cartOrder      CartOrder? @relation(fields: [cartOrderId], references: [id])
+  downloadCount  Int        @default(0)
+  lastDownloadAt DateTime?
+  createdAt      DateTime   @default(now())
+
+  @@unique([clientId, downloadFileId])
+  @@index([clientId, productId])
+  @@index([status])
+}
+
+model ClientProduct {
+  id          Int            @id @default(autoincrement())
+  clientId    Int
+  productId   Int
+  status      ContractStatus
+  totalHours  Float?
+  hoursUsed   Float          @default(0)
+  startDate   DateTime
+  renewalDate DateTime?
+  price       Decimal
+  source      CreditSource   @default(PAYMENT)
+  autoRenew            Boolean        @default(true)
+  autoRenewNotifiedAt  DateTime?
+  notes       String?
+  client           User              @relation(fields: [clientId], references: [id])
+  product          Product           @relation(fields: [productId], references: [id])
+  hourEntries      HourEntry[]
+  revisionTracker  RevisionTracker?
+}
+
+model HourEntry {
+  id              Int           @id @default(autoincrement())
+  clientProductId Int
+  date            DateTime
+  task            String
+  description     String?
+  hours           Float
+  startTime       DateTime?
+  endTime         DateTime?
+  registeredById  Int
+  createdAt       DateTime      @default(now())
+  clientProduct   ClientProduct @relation(fields: [clientProductId], references: [id])
+  registeredBy    User          @relation("HourEntryRegisteredBy", fields: [registeredById], references: [id])
+}
+
+model HourServiceCategory {
+  id                  Int           @id @default(autoincrement())
+  name                String
+  slug                String        @unique
+  description         String?
+  launchPricePerHour  Decimal
+  regularPricePerHour Decimal
+  isLaunchActive      Boolean       @default(true)
+  isActive            Boolean       @default(true)
+  order               Int           @default(0)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  hourBookings        HourBooking[]
+}
+
+model CalculatorConfigSetting {
+  id          Int      @id @default(autoincrement())
+  configId    String   @unique
+  settings    Json     @default("{}")
+  updatedById Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model CalculatorPriceOption {
+  id             Int      @id @default(autoincrement())
+  key            String   @unique
+  label          String
+  note           String?
+  pricingMode    String
+  value          Float
+  applyTo        String   @default("base")
+  isPer          Boolean  @default(false)
+  minimum        Float?
+  exclusiveGroup String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model WizardFlowSetting {
+  id          Int      @id @default(autoincrement())
+  wizardId    String   @unique
+  settings    Json     @default("{}")
+  updatedById Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model HourBooking {
+  id                Int                   @id @default(autoincrement())
+  clientId          Int
+  client            User                  @relation("HourBookings", fields: [clientId], references: [id])
+  hours             Int
+  priceTotal        Decimal
+  pricePerHour      Decimal
+  status            BookingStatus         @default(PENDING_PAYMENT)
+  discountCodeId    Int?
+  discountPct       Float                 @default(0)
+  serviceCategoryId Int?
+  serviceCategory   HourServiceCategory?  @relation(fields: [serviceCategoryId], references: [id])
+  selectedCategories String?
+  autoRenew         Boolean               @default(true)
+  createdAt         DateTime              @default(now())
+  abandonmentNotifiedAt DateTime?
+  order             Order?
+
+  @@index([clientId, createdAt])
+  @@index([status, createdAt])
+}
+
+model Order {
+  id              Int         @id @default(autoincrement())
+  clientId        Int
+  client          User        @relation("ClientOrders", fields: [clientId], references: [id])
+  type            OrderType
+  productId       Int?
+  product         Product?    @relation(fields: [productId], references: [id])
+  hourBookingId   Int?        @unique
+  hourBooking     HourBooking? @relation(fields: [hourBookingId], references: [id])
+  amountCRC       Int
+  discountPct     Float       @default(0)
+  discountCodeId  Int?
+  finalAmountCRC  Int
+  status                OrderStatus @default(PENDING)
+  paymentIntentId       String?     @unique
+  paidAt                DateTime?
+  abandonmentNotifiedAt DateTime?
+  createdAt             DateTime    @default(now())
+
+  // Registro de consentimiento legal
+  acceptedTerms         Boolean     @default(false)
+  acceptedTermsAt       DateTime?
+  acceptedTermsIp       String?
+  acceptedTermsUserAgent String?
+  clientDownloads       ClientDownload[] @relation("OrderDownloads")
+  providerPayouts       ProviderPayout[]
+  orderAddOns           OrderAddOn[]
+  orderAnswers          OrderAnswer[]
+  installmentPlan       InstallmentPlan?
+
+  @@index([clientId, createdAt])
+  @@index([status, createdAt])
+}
+
+model Notification {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  title     String
+  body      String
+  type      NotifType
+  isRead    Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id])
+}
+
+model AdminStatus {
+  id        Int         @id
+  status    AvailStatus
+  updatedAt DateTime    @updatedAt
+  schedule  Json
+}
+
+model ContactMessage {
+  id              Int           @id @default(autoincrement())
+  name            String
+  lastName        String?
+  company         String?
+  email           String
+  phone           String
+  message         String
+  deadline        DateTime?
+  deadlineEnd     DateTime?
+  knowsServices   Boolean?
+  productInterest String?
+  budgetMin       Float?
+  budgetMax       Float?
+  budgetPeriod    String?
+  isUrgent            Boolean?
+  wantsCustomService  Boolean?  @default(false)
+  serviceCategories   String?
+  suggestedService    String?
+  adminReply      String?
+  repliedAt       DateTime?
+  createdAt       DateTime      @default(now())
+  isRead          Boolean       @default(false)
+  conversation    Conversation?
+}
+
+model Conversation {
+  id               Int                @id @default(autoincrement())
+  clientId         Int?
+  contactMessageId Int?               @unique
+  subject          String?
+  status           ConversationStatus @default(OPEN)
+  assignedAgentId  Int?
+  assignedAgent    User?              @relation("ConversationAgent", fields: [assignedAgentId], references: [id], onDelete: SetNull)
+  lastMessageAt    DateTime           @default(now())
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  client           User?              @relation("ClientConversations", fields: [clientId], references: [id])
+  contactMessage   ContactMessage?    @relation(fields: [contactMessageId], references: [id])
+  messages         Message[]
+}
+
+model Message {
+  id             Int           @id @default(autoincrement())
+  conversationId Int
+  senderType     MessageSender
+  senderUserId   Int?
+  body           String?
+  attachments    Json?
+  readByAdminAt  DateTime?
+  readByClientAt DateTime?
+  createdAt      DateTime      @default(now())
+  conversation   Conversation  @relation(fields: [conversationId], references: [id])
+  senderUser     User?         @relation("MessageSender", fields: [senderUserId], references: [id])
+}
+
+model Ticket {
+  id           Int                 @id @default(autoincrement())
+  clientId     Int
+  client       User                @relation("ClientTickets", fields: [clientId], references: [id])
+  subject      String
+  status       TicketStatus        @default(OPEN)
+  assignedAgentId  Int?
+  assignedAgent    User?           @relation("TicketAgent", fields: [assignedAgentId], references: [id], onDelete: SetNull)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  messages     TicketMessage[]
+  callRequests TicketCallRequest[]
+}
+
+model TicketMessage {
+  id        Int      @id @default(autoincrement())
+  ticketId  Int
+  ticket    Ticket   @relation(fields: [ticketId], references: [id])
+  senderId  Int
+  sender    User     @relation("TicketMessageSender", fields: [senderId], references: [id])
+  body      String
+  createdAt DateTime @default(now())
+}
+
+model TicketCallRequest {
+  id               Int               @id @default(autoincrement())
+  ticketId         Int
+  requestedById    Int
+  status           CallRequestStatus @default(PENDING)
+  suggestedSlots   Json
+  preferredStart   DateTime?
+  selectedStart    DateTime?
+  selectedEnd      DateTime?
+  contactMethod    ContactMethod?
+  calendarEventId  String?
+  calendarHtmlLink String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  respondedAt      DateTime?
+  ticket           Ticket            @relation(fields: [ticketId], references: [id])
+  requestedBy      User              @relation("TicketCallRequestsByAdmin", fields: [requestedById], references: [id])
+}
+
+model LegalPage {
+  id          Int      @id @default(autoincrement())
+  slug        String   @unique
+  title       String
+  content     String
+  updatedAt   DateTime @updatedAt
+  updatedById Int?
+}
+
+model BlogPost {
+  id                Int       @id @default(autoincrement())
+  slug              String    @unique
+  title             String
+  excerpt           String?
+  coverUrl          String?
+  content           String
+  isPublished       Boolean   @default(false)
+  publishedAt       DateTime?
+  authorId          Int
+  author            User      @relation("BlogAuthor", fields: [authorId], references: [id])
+  keywords          String[]  @default([])
+  relatedPostIds    Int[]     @default([])
+  relatedProductIds Int[]     @default([])
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+model FaqItem {
+  id        Int      @id @default(autoincrement())
+  question  String
+  answer    String
+  category  String   @default("General")
+  order     Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model DiscountCode {
+  id              Int             @id @default(autoincrement())
+  code            String          @unique
+  discountPct     Float
+  maxUses         Int?
+  usedCount       Int             @default(0)
+  expiresAt       DateTime?
+  isActive        Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  createdById     Int
+  createdBy       User            @relation("CodeCreator", fields: [createdById], references: [id])
+  autoApplyToRole  Role?
+  autoApplyToUsers Int[]           @default([])
+  usages          DiscountUsage[]
+  referralRewards Referral[]
+}
+
+model DiscountUsage {
+  id     Int          @id @default(autoincrement())
+  codeId Int
+  code   DiscountCode @relation(fields: [codeId], references: [id])
+  userId Int
+  user   User         @relation("CodeUsages", fields: [userId], references: [id])
+  usedAt DateTime     @default(now())
+
+  @@unique([codeId, userId])
+}
+
+model Referral {
+  id            Int            @id @default(autoincrement())
+  referrerId    Int
+  referrer      User           @relation("Referrer", fields: [referrerId], references: [id])
+  referredEmail String
+  referredId    Int?
+  referred      User?          @relation("Referred", fields: [referredId], references: [id])
+  status        ReferralStatus @default(PENDING)
+  rewardCodeId  Int?
+  rewardCode    DiscountCode?  @relation(fields: [rewardCodeId], references: [id])
+  createdAt     DateTime       @default(now())
+}
+
+model Testimonial {
+  id           Int      @id @default(autoincrement())
+  name         String
+  role         String?
+  company      String?
+  socialHandle String?
+  socialNetwork String?
+  avatarUrl    String?
+  content      String
+  stars        Int      @default(5)
+  isActive     Boolean  @default(true)
+  order        Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model CartOrder {
+  id              Int              @id @default(autoincrement())
+  clientId        Int
+  client          User             @relation("CartOrders", fields: [clientId], references: [id])
+  items           CartOrderItem[]
+  subtotalCRC     Int
+  discountCodeId  Int?
+  discountPct     Float            @default(0)
+  finalAmountCRC  Int
+  status          OrderStatus      @default(PENDING)
+  paymentIntentId String?          @unique
+  paidAt          DateTime?
+  createdAt       DateTime         @default(now())
+  clientDownloads  ClientDownload[]
+  providerPayouts  ProviderPayout[]
+  installmentPlan  InstallmentPlan?
+
+  @@index([clientId, createdAt])
+  @@index([status, createdAt])
+}
+
+model CartOrderItem {
+  id           Int          @id @default(autoincrement())
+  cartOrderId  Int
+  cartOrder    CartOrder    @relation(fields: [cartOrderId], references: [id], onDelete: Cascade)
+  productId    Int
+  product      Product      @relation("CartItems", fields: [productId], references: [id])
+  qty          Int          @default(1)
+  unitPriceCRC Int
+  orderAddOns  OrderAddOn[]
+  orderAnswers OrderAnswer[]
+}
+
+enum Role {
+  CLIENT
+  ADMIN
+  PROVEEDOR
+  COLABORADOR
+}
+
+enum ProductCategory {
+  SOCIAL
+  VIDEO
+  DESIGN
+  WEB
+}
+
+enum ProductType {
+  SERVICIO
+  DESCARGABLE
+  PERSONALIZABLE
+  PEDIDO_PERSONALIZADO
+}
+
+enum DownloadAccessStatus {
+  ACTIVE
+  INACTIVE
+  CUSTOMIZING
+  PENDING_APPROVAL
+  PREPARING
+  WAITING_SPECIFICATIONS
+  PENDING_PAYMENT
+}
+
+enum ContractStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+}
+
+enum CreditSource {
+  PAYMENT
+  MANUAL_CREDIT
+}
+
+enum BookingStatus {
+  PENDING_PAYMENT
+  PAID
+  CONFIRMED
+  CANCELLED
+}
+
+enum OrderType {
+  PRODUCT
+  HOURS
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FAILED
+  CANCELLED
+}
+
+enum NotifType {
+  HOURS_REGISTERED
+  REPORT_READY
+  RENEWAL_ALERT
+  STATUS_CHANGE
+}
+
+enum AvailStatus {
+  AVAILABLE
+  WORKING
+  BUSY
+  OFF_HOURS
+}
+
+enum ConversationStatus {
+  OPEN
+  CLOSED
+}
+
+enum MessageSender {
+  ADMIN
+  CLIENT
+  CONTACT
+  COLABORADOR
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  CLOSED
+}
+
+enum CallRequestStatus {
+  PENDING
+  SCHEDULED
+  CANCELLED
+}
+
+enum ContactMethod {
+  PHONE
+  WHATSAPP
+  GOOGLE_MEET
+}
+
+enum ReferralStatus {
+  PENDING
+  REGISTERED
+  REWARDED
+}
+
+enum QuestionType {
+  TEXT
+  TEXTAREA
+  SELECT
+  CHECKBOX
+}
+
+enum PayoutStatus {
+  PENDING
+  PAID
+  CANCELLED
+}
+
+enum PayoutMethod {
+  ONVO_SPLIT
+  MANUAL
+}
+
+enum SubscriptionInterval {
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum InstallmentPlanStatus {
+  ACTIVE
+  COMPLETED
+  DEFAULTED
+  CANCELLED
+}
+
+enum InstallmentStatus {
+  PENDING
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum ProjectStatus {
+  QUEUED
+  IN_PROGRESS
+  ON_HOLD
+  COMPLETED
+}
+
+enum TaskColumn {
+  TODO
+  IN_PROGRESS
+  REVIEW
+  DONE
+}
+
+enum TaskPriority {
+  NONE
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model ProviderPayout {
+  id                  Int           @id @default(autoincrement())
+  proveedorId         Int
+  proveedor           User          @relation("ProviderPayouts", fields: [proveedorId], references: [id])
+  orderId             Int?
+  order               Order?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  cartOrderId         Int?
+  cartOrder           CartOrder?    @relation(fields: [cartOrderId], references: [id], onDelete: SetNull)
+  productId           Int
+  product             Product       @relation(fields: [productId], references: [id])
+  totalSale           Int
+  comisionUtil        Float
+  porcentajeHacienda  Float
+  amountUtil          Int
+  amountTax           Int
+  amountProvider      Int
+  method              PayoutMethod
+  status              PayoutStatus  @default(PENDING)
+  paidAt              DateTime?
+  notes               String?
+  createdAt           DateTime      @default(now())
+
+  @@index([proveedorId])
+  @@index([status])
+  @@index([productId])
+}
+
+model ClientCollaborator {
+  id             Int      @id @default(autoincrement())
+  clientId       Int
+  client         User     @relation("ClientCollaborators", fields: [clientId], references: [id], onDelete: Cascade)
+  collaboratorId Int
+  collaborator   User     @relation("CollaboratorClients", fields: [collaboratorId], references: [id], onDelete: Cascade)
+  assignedAt     DateTime @default(now())
+
+  @@unique([clientId, collaboratorId])
+  @@index([collaboratorId])
+}
+
+model ProductAddOn {
+  id          Int          @id @default(autoincrement())
+  productId   Int
+  product     Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  price       Decimal
+  maxQty      Int          @default(1)
+  isActive    Boolean      @default(true)
+  order       Int          @default(0)
+  orderAddOns OrderAddOn[]
+
+  @@index([productId])
+}
+
+model OrderAddOn {
+  id              Int            @id @default(autoincrement())
+  orderId         Int?
+  order           Order?         @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  cartOrderItemId Int?
+  cartOrderItem   CartOrderItem? @relation(fields: [cartOrderItemId], references: [id], onDelete: SetNull)
+  addOnId         Int
+  addOn           ProductAddOn   @relation(fields: [addOnId], references: [id])
+  qty             Int            @default(1)
+  unitPriceCRC    Int
+
+  @@index([orderId])
+  @@index([cartOrderItemId])
+}
+
+model RevisionTracker {
+  id              Int           @id @default(autoincrement())
+  clientProductId Int           @unique
+  clientProduct   ClientProduct @relation(fields: [clientProductId], references: [id], onDelete: Cascade)
+  totalAllowed    Int
+  used            Int           @default(0)
+  extraPurchased  Int           @default(0)
+}
+
+model ProductQuestion {
+  id          Int            @id @default(autoincrement())
+  productId   Int
+  product     Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  question    String
+  type        QuestionType   @default(TEXT)
+  options     Json?
+  isRequired  Boolean        @default(true)
+  order       Int            @default(0)
+  answers     OrderAnswer[]
+
+  @@index([productId])
+}
+
+model OrderAnswer {
+  id              Int              @id @default(autoincrement())
+  orderId         Int?
+  order           Order?           @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  cartOrderItemId Int?
+  cartOrderItem   CartOrderItem?   @relation(fields: [cartOrderItemId], references: [id], onDelete: SetNull)
+  questionId      Int
+  question        ProductQuestion  @relation(fields: [questionId], references: [id])
+  answer          String
+
+  @@index([orderId])
+  @@index([cartOrderItemId])
+}
+
+model PortfolioCategory {
+  id        Int      @id @default(autoincrement())
+  slug      String   @unique
+  label     String
+  icon      String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PortfolioProject {
+  id               Int       @id @default(autoincrement())
+  slug             String    @unique
+  title            String
+  client           String?
+  date             String?
+  summary          String
+  approach         String    @default("")
+  budget           String?
+  aspectRatio      String    @default("4/3")
+  liveUrl          String?
+  showBrowserFrame Boolean   @default(false)
+  coverUrl         String?
+  categories       String[]  @default([])
+  software         Json      @default("[]")
+  technologies     Json      @default("[]")
+  results          Json      @default("[]")
+  content          Json      @default("[]")
+  isPublished      Boolean   @default(false)
+  publishedAt      DateTime?
+  order            Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([isPublished, order])
+}
+
+model InstallmentPlan {
+  id                   Int                   @id @default(autoincrement())
+  clientId             Int
+  client               User                  @relation("ClientInstallmentPlans", fields: [clientId], references: [id])
+  orderId              Int?                  @unique
+  order                Order?                @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  cartOrderId          Int?                  @unique
+  cartOrder            CartOrder?            @relation(fields: [cartOrderId], references: [id], onDelete: SetNull)
+  description          String
+  totalAmountCRC       Int
+  numberOfInstallments Int
+  status               InstallmentPlanStatus @default(ACTIVE)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  installments         Installment[]
+
+  @@index([clientId])
+  @@index([status])
+}
+
+model Installment {
+  id                Int               @id @default(autoincrement())
+  installmentPlanId Int
+  installmentPlan   InstallmentPlan   @relation(fields: [installmentPlanId], references: [id], onDelete: Cascade)
+  sequenceNumber    Int
+  amountCRC         Int
+  penaltyFeeCRC     Int               @default(0)
+  dueDate           DateTime
+  status            InstallmentStatus @default(PENDING)
+  paymentIntentId   String?           @unique
+  checkoutUrl       String?
+  paidAt            DateTime?
+  reminderSentAt    DateTime?
+  retryCount        Int               @default(0)
+  lastRetryAt       DateTime?
+  createdAt         DateTime          @default(now())
+
+  @@index([installmentPlanId])
+  @@index([status, dueDate])
+}
+
+model Project {
+  id             Int           @id @default(autoincrement())
+  clientId       Int
+  client         User          @relation("ClientProjects", fields: [clientId], references: [id])
+  name           String
+  description    String?
+  status         ProjectStatus @default(QUEUED)
+  priority       Int           @default(0)
+  estimatedHours Float?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  tasks          ProjectTask[]
+
+  @@index([status, priority])
+  @@index([clientId, status])
+}
+
+model ProjectTask {
+  id        Int        @id @default(autoincrement())
+  projectId Int
+  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title     String
+  column      TaskColumn @default(TODO)
+  order       Int        @default(0)
+  assigneeId  Int?
+  assignee    User?      @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  description String?
+  deadline    DateTime?
+  priority    TaskPriority @default(NONE)
+  createdAt   DateTime   @default(now())
+  subtasks    SubTask[]
+
+  @@index([projectId, column, order])
+}
+
+model SubTask {
+  id        Int         @id @default(autoincrement())
+  taskId    Int
+  task      ProjectTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  title     String
+  done      Boolean     @default(false)
+  order     Int         @default(0)
+  createdAt DateTime    @default(now())
+
+  @@index([taskId, order])
+}
+
+model NsfwAccessRequest {
+  id        Int      @id @default(autoincrement())
+  email     String
+  token     String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([email, createdAt])
+}

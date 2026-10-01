@@ -1,0 +1,53 @@
+# ─── Dependencias ───────────────────────────────────────────
+node_modules/
+
+# ─── Build / salida generada ─────────────────────────────────
+.next/
+out/
+build/
+
+# ─── Datos de ejecución (envíos de usuarios, subidas) ────────
+backend/data/
+backend/uploads/
+
+# ─── Variables de entorno ────────────────────────────────────
+.env
+.env.*
+backend/.env
+
+# ─── Archivos de proyecto / brief ────────────────────────────
+ienyell-brief-proyecto.md
+*.zip
+cold-turkey-blocker-folder-lock
+
+# ─── Claude (Anthropic) ──────────────────────────────────────
+CLAUDE.md
+.claude/
+.claude
+
+# ─── Antigravity / Gemini (Google DeepMind) ──────────────────
+AGENTS.md
+.agents/
+.gemini/
+
+# ─── Cursor ──────────────────────────────────────────────────
+.cursor/
+.cursorignore
+.cursorindexingignore
+
+# ─── Windsurf ────────────────────────────────────────────────
+.windsurf/
+.windsurfrules
+
+# ─── Aider ───────────────────────────────────────────────────
+.aider*
+aider.conf.yml
+
+# ─── GitHub Copilot ──────────────────────────────────────────
+.github/copilot-instructions.md
+
+# ─── Continue ────────────────────────────────────────────────
+.continue/
+
+# ─── Codeium / Supermaven ────────────────────────────────────
+.codeium/

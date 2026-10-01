@@ -1,0 +1,396 @@
+'use client';
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
+import { useParams, useRouter } from 'next/navigation';
+
+import { authFetch, authUpload } from '../../../../../lib/authHelper';
+import {
+  slugifyCmsValue,
+  toDateTimeLocalValue,
+  fromDateTimeLocalValue,
+  getPublicationState,
+  hasMeaningfulHtmlContent,
+} from '../../../../../lib/publishing';
+import BlogEditor from '../../../../../components/cms/BlogEditor';
+import CmsCoverUpload from '../../../../../components/cms/CmsCoverUpload';
+import CmsSidebarSection from '../../../../../components/cms/CmsSidebarSection';
+import CmsKeywordsInput from '../../../../../components/cms/CmsKeywordsInput';
+import CmsRelatedSelector from '../../../../../components/cms/CmsRelatedSelector';
+
+const EMPTY_FORM = {
+  title: '',
+  excerpt: '',
+  coverUrl: '',
+  content: '',
+  slug: '',
+  isPublished: false,
+  publishedAt: null,
+  keywords: [],
+  relatedPostIds: [],
+};
+
+function postToForm(post) {
+  return {
+    ...EMPTY_FORM,
+    title: post.title || '',
+    excerpt: post.excerpt || '',
+    coverUrl: post.coverUrl || '',
+    content: typeof post.content === 'string' ? post.content : post.content?.html || '',
+    slug: post.slug || '',
+    isPublished: Boolean(post.isPublished),
+    publishedAt: post.publishedAt || null,
+    keywords: Array.isArray(post.keywords) ? post.keywords : [],
+    relatedPostIds: Array.isArray(post.relatedPostIds) ? post.relatedPostIds : [],
+  };
+}
+
+function createPayload(source) {
+  return {
+    title: source.title,
+    slug: source.slug || slugifyCmsValue(source.title, 'post', 60),
+    content: source.content,
+    excerpt: source.excerpt,
+    coverUrl: source.coverUrl,
+    keywords: source.keywords,
+    relatedPostIds: source.relatedPostIds,
+    isPublished: source.isPublished,
+    publishedAt: source.publishedAt,
+  };
+}
+
+export default function BlogEditorPage() {
+  const params = useParams();
+  const router = useRouter();
+  const routeId = params?.id ? Number(params.id) : null;
+
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [postId, setPostId] = useState(null);
+  const [allPosts, setAllPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saveStatus, setSaveStatus] = useState('idle');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  const saveTimerRef = useRef(null);
+  const formRef = useRef(EMPTY_FORM);
+  const postIdRef = useRef(null);
+  const savePromiseRef = useRef(Promise.resolve());
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadEditor() {
+      setLoading(true);
+      setSaveStatus('idle');
+
+      try {
+        const data = await authFetch('/api/blog/admin');
+        const availablePosts = Array.isArray(data?.posts) ? data.posts : [];
+        if (cancelled) return;
+        setAllPosts(availablePosts);
+
+        if (!routeId) {
+          formRef.current = EMPTY_FORM;
+          postIdRef.current = null;
+          setForm(EMPTY_FORM);
+          setPostId(null);
+          return;
+        }
+
+        const postSummary = availablePosts.find((post) => Number(post.id) === routeId);
+        if (!postSummary) throw new Error('Post not found.');
+
+        let fullPost = postSummary;
+        try {
+          fullPost = await authFetch(`/api/blog/${postSummary.slug}`);
+        } catch (requestError) {
+          if (requestError?.status !== 404) throw requestError;
+        }
+        if (cancelled) return;
+
+        const nextForm = postToForm(fullPost);
+        formRef.current = nextForm;
+        postIdRef.current = Number(fullPost.id);
+        setForm(nextForm);
+        setPostId(Number(fullPost.id));
+      } catch (requestError) {
+        if (!cancelled) {
+          console.error('Blog editor load failed:', requestError);
+          setSaveStatus('error');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadEditor();
+
+    return () => {
+      cancelled = true;
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [routeId]);
+
+  const persistDraft = useCallback((overrides = {}) => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+
+    const nextForm = { ...formRef.current, ...overrides };
+    formRef.current = nextForm;
+    setForm(nextForm);
+
+    if (!nextForm.title.trim() || !hasMeaningfulHtmlContent(nextForm.content)) {
+      return Promise.resolve(null);
+    }
+
+    setSaveStatus('saving');
+
+    const save = async () => {
+      const currentId = postIdRef.current;
+      const payload = createPayload(nextForm);
+
+      try {
+        let savedPost;
+        if (!currentId) {
+          savedPost = await authFetch('/api/blog', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+          const newId = Number(savedPost?.id);
+          if (!newId) throw new Error('The post was created without an ID.');
+
+          postIdRef.current = newId;
+          setPostId(newId);
+          setAllPosts((currentPosts) => [savedPost, ...currentPosts]);
+          router.replace(`/admin/blog/${newId}/edit`);
+        } else {
+          savedPost = await authFetch(`/api/blog/${currentId}`, {
+            method: 'PUT',
+            body: JSON.stringify(payload),
+          });
+          setAllPosts((currentPosts) => currentPosts.map((post) => (
+            post.id === currentId ? { ...post, ...savedPost } : post
+          )));
+        }
+
+        setSaveStatus('saved');
+        return savedPost;
+      } catch (requestError) {
+        console.error('Blog draft save failed:', requestError);
+        setSaveStatus('error');
+        throw requestError;
+      }
+    };
+
+    const queuedSave = savePromiseRef.current
+      .catch(() => undefined)
+      .then(save);
+    savePromiseRef.current = queuedSave;
+    return queuedSave;
+  }, [router]);
+
+  const scheduleSave = useCallback(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    setSaveStatus('idle');
+    saveTimerRef.current = setTimeout(() => {
+      persistDraft().catch(() => undefined);
+    }, 2000);
+  }, [persistDraft]);
+
+  const updateField = useCallback((key, value) => {
+    const nextForm = { ...formRef.current, [key]: value };
+    formRef.current = nextForm;
+    setForm(nextForm);
+    scheduleSave();
+  }, [scheduleSave]);
+
+  const handlePublish = useCallback(async () => {
+    try {
+      const savedPost = await persistDraft();
+      const currentId = postIdRef.current;
+      if (!savedPost || !currentId) {
+        setSaveStatus('error');
+        return;
+      }
+
+      setSaveStatus('saving');
+      const updatedPost = await authFetch(`/api/blog/${currentId}/publish`, {
+        method: 'PATCH',
+      });
+      const nextForm = {
+        ...formRef.current,
+        isPublished: Boolean(updatedPost.isPublished),
+        publishedAt: updatedPost.publishedAt || null,
+      };
+      formRef.current = nextForm;
+      setForm(nextForm);
+      setAllPosts((currentPosts) => currentPosts.map((post) => (
+        post.id === currentId ? { ...post, ...updatedPost } : post
+      )));
+      setSaveStatus('saved');
+    } catch (requestError) {
+      console.error('Blog publish toggle failed:', requestError);
+      setSaveStatus('error');
+    }
+  }, [persistDraft]);
+
+  const handleSchedulePublish = useCallback(async (datetimeValue) => {
+    const publishedAt = fromDateTimeLocalValue(datetimeValue);
+    if (!publishedAt || new Date(publishedAt).getTime() <= Date.now()) {
+      setSaveStatus('error');
+      return;
+    }
+
+    try {
+      const savedPost = await persistDraft({ isPublished: false, publishedAt });
+      if (!savedPost) setSaveStatus('error');
+    } catch (_) {
+      // persistDraft exposes the failure through saveStatus.
+    }
+  }, [persistDraft]);
+
+  const handleClearSchedule = useCallback(async () => {
+    try {
+      const savedPost = await persistDraft({ isPublished: false, publishedAt: null });
+      if (!savedPost) setSaveStatus('error');
+    } catch (_) {
+      // persistDraft exposes the failure through saveStatus.
+    }
+  }, [persistDraft]);
+
+  if (loading) {
+    return (
+      <main className="cms-editor-page">
+        <div className="blog-loading" role="status">
+          <span className="blog-loading-spinner" /> Loading…
+        </div>
+      </main>
+    );
+  }
+
+  const publicationState = getPublicationState(form);
+
+  return (
+    <main className="cms-editor-page" data-post-id={postId || undefined}>
+      <div className="cms-editor-topbar">
+        <Link href="/admin/blog" className="cms-back-button">← Blog</Link>
+        <span
+          className={`cms-save-status ${saveStatus === 'saved' ? 'is-saved' : saveStatus === 'error' ? 'is-error' : ''}`}
+        >
+          {saveStatus === 'saving'
+            ? 'Saving…'
+            : saveStatus === 'saved'
+              ? 'Saved'
+              : saveStatus === 'error'
+                ? 'Error saving'
+                : ''}
+        </span>
+        <button
+          type="button"
+          className="cms-btn cms-btn-sm"
+          onClick={() => setSidebarOpen((value) => !value)}
+        >
+          {sidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'}
+        </button>
+      </div>
+
+      <div className="cms-editor-layout">
+        <div className="cms-editor-main">
+          <input
+            type="text"
+            value={form.title}
+            onChange={(event) => updateField('title', event.target.value)}
+            placeholder="Post title"
+            className="cms-title-input"
+          />
+          <BlogEditor
+            content={form.content}
+            onChange={(html) => updateField('content', html)}
+            placeholder="Start writing your post…"
+          />
+        </div>
+
+        {sidebarOpen && (
+          <aside className="cms-editor-sidebar">
+            <CmsSidebarSection title="Cover image">
+              <CmsCoverUpload
+                coverUrl={form.coverUrl}
+                onChange={(url) => updateField('coverUrl', url)}
+                uploadFile={(file) => authUpload('/api/uploads', file)}
+              />
+            </CmsSidebarSection>
+
+            <CmsSidebarSection title="SEO">
+              <div className="cms-slug-preview">
+                <span>URL Preview</span>
+                <code>/blog/{form.slug || slugifyCmsValue(form.title)}</code>
+              </div>
+              <input
+                type="text"
+                value={form.slug}
+                onChange={(event) => updateField('slug', event.target.value)}
+                placeholder="Custom slug"
+                className="cms-input"
+              />
+              <textarea
+                value={form.excerpt}
+                onChange={(event) => updateField('excerpt', event.target.value)}
+                placeholder="Excerpt / meta description (max 200 chars)"
+                className="cms-input cms-textarea"
+                rows={3}
+                maxLength={200}
+              />
+              <CmsKeywordsInput
+                keywords={form.keywords}
+                onChange={(value) => updateField('keywords', value)}
+              />
+            </CmsSidebarSection>
+
+            <CmsSidebarSection title="Related Posts" defaultOpen={false}>
+              <CmsRelatedSelector
+                label="posts"
+                selectedIds={form.relatedPostIds}
+                onChange={(value) => updateField('relatedPostIds', value)}
+                items={allPosts
+                  .filter((post) => post.id !== postId)
+                  .map((post) => ({ id: post.id, title: post.title }))}
+              />
+            </CmsSidebarSection>
+
+            <CmsSidebarSection title="Publication" defaultOpen={false}>
+              <div className="cms-publish-section">
+                <span className={`cms-admin-badge cms-badge-${publicationState}`}>
+                  {publicationState === 'published'
+                    ? 'Published'
+                    : publicationState === 'scheduled'
+                      ? 'Scheduled'
+                      : 'Draft'}
+                </span>
+                <button type="button" className="cms-btn" onClick={handlePublish}>
+                  {form.isPublished ? 'Unpublish' : 'Publish Now'}
+                </button>
+                <input
+                  type="datetime-local"
+                  value={toDateTimeLocalValue(form.publishedAt)}
+                  onChange={(event) => handleSchedulePublish(event.target.value)}
+                  className="cms-input"
+                />
+                {form.publishedAt && !form.isPublished && (
+                  <button
+                    type="button"
+                    className="cms-btn cms-btn-sm"
+                    onClick={handleClearSchedule}
+                  >
+                    Clear schedule
+                  </button>
+                )}
+              </div>
+            </CmsSidebarSection>
+          </aside>
+        )}
+      </div>
+    </main>
+  );
+}
