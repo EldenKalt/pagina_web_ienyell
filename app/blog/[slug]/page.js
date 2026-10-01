@@ -20,6 +20,7 @@ import BlogPostRelated from '../../../components/blog/BlogPostRelated';
 import BlogPostCourses from '../../../components/blog/BlogPostCourses';
 import BlogPostTools from '../../../components/blog/BlogPostTools';
 import BlogPostBody from '../../../components/blog/BlogPostBody';
+import { getPlaceholderHighlights } from '../../../data/blogPlaceholderHighlights';
 import NewsletterForm from '../../../components/blog/NewsletterForm';
 import {
   BLOG_USE_PLACEHOLDER_DATA,
@@ -58,6 +59,10 @@ export default function BlogPostPage() {
   // renders twice and the two copies must not disagree. NOT WIRED — the
   // annotation layer that would read it has not been built.
   const [highlightsHidden, setHighlightsHidden] = useState(false);
+  // NOT PERSISTED. The painted annotations come from the placeholder file during
+  // the UI phase; lib/annotations resolves them against the rendered article, so
+  // what is exercised here is the real anchoring, only the source is mock.
+  const highlights = useMemo(() => getPlaceholderHighlights(), []);
 
   const relatedPosts = Array.isArray(post?.relatedPosts) ? post.relatedPosts : [];
   const previousPost = post?.previousPost || null;
@@ -170,7 +175,13 @@ export default function BlogPostPage() {
                 <img className="blog-post-cover" src={post.coverUrl} alt={post.title} />
               ) : null}
 
-              <BlogPostBody html={safeHtml} outline={outline} />
+              <BlogPostBody
+                html={safeHtml}
+                outline={outline}
+                highlights={highlights}
+                highlightsHidden={highlightsHidden}
+                onOpenHighlight={(id, text) => setHighlightFragment(text)}
+              />
 
               {/* Chapter navigation replaces the older prev / back / next row:
                   the reference puts one control here, and two sets of previous

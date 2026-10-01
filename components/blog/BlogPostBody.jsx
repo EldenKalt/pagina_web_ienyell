@@ -3,6 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { fontsReady, measureText, readTextStyle } from '../../lib/pretext';
 import { applyOutlineIds } from '../../lib/blogOutline';
+import { indexText, resolveSelector } from '../../lib/annotations';
+import {
+  segmentHighlights,
+  paintHighlights,
+  clearHighlights,
+  annotationIdFromEvent,
+} from '../../lib/highlights';
 
 /**
  * The article body, and the one place that measures it.
@@ -10,9 +17,13 @@ import { applyOutlineIds } from '../../lib/blogOutline';
  * Two things happen here, and they are the same walk:
  *
  * 1. A block index over `.blog-content` — for every block element, its text and
- *    the [start, end) offsets of that text inside the article's normalised text.
- *    That index is exactly what a W3C TextPositionSelector needs, so the
- *    annotation layer will read it instead of re-walking the DOM.
+ *    its tag, used for the typography warnings below.
+ *
+ *    Its offsets are NOT what the annotation layer anchors against. They come
+ *    from concatenating block textContent, which counts a <blockquote><p> twice
+ *    and misses anything outside the tag list; lib/annotations walks text nodes
+ *    instead, which counts every character once and gives the inverse mapping a
+ *    stored selector needs to become a Range again.
  *
  * 2. Pretext measurement of each block at its real painted width, without
  *    touching offsetHeight. Used today for development-time typography warnings.
@@ -66,7 +77,13 @@ export function buildBlockIndex(root) {
   return blocks;
 }
 
-export default function BlogPostBody({ html, outline = [] }) {
+export default function BlogPostBody({
+  html,
+  outline = [],
+  highlights = [],
+  highlightsHidden = false,
+  onOpenHighlight,
+}) {
   const contentRef = useRef(null);
   const blocksRef = useRef([]);
   const jumpedRef = useRef(false);
@@ -184,13 +201,77 @@ export default function BlogPostBody({ html, outline = [] }) {
     });
   }, [html, serifReady]);
 
+  // Painting the annotations.
+  //
+  // Gated on the serif for the same reason the deep-link jump is: resolving is
+  // over text, not pixels, so the font does not change WHERE a passage is — but
+  // repainting while the article is still reflowing means doing the work twice.
+  //
+  // Everything is resolved against ONE index built before a single mark is
+  // inserted. Wrapping splits text nodes, so an index read after the first mark
+  // disagrees with itself; lib/highlights paints from the end of the article
+  // backwards so that never arises.
+  //
+  // The article is cleared first on every run. Repainting over existing marks
+  // would nest them, and nested marks compound the background until a popular
+  // passage is darker than the text around it.
+  useEffect(() => {
+    const root = contentRef.current;
+    if (!root || !serifReady) return undefined;
+
+    clearHighlights(root);
+    if (highlightsHidden || !highlights.length) return undefined;
+
+    const index = indexText(root);
+    const resolved = highlights
+      .map((highlight) => {
+        const range = resolveSelector(root, highlight.selector, index);
+        // Orphaned: the passage is gone. The annotation still belongs to its
+        // author and still exists — it simply has nowhere to be drawn.
+        if (!range) return null;
+        const start = index.nodes.findIndex(
+          (node, i) => node === range.startContainer && index.offsets[i] === range.startOffset,
+        );
+        if (start === -1) return null;
+        return {
+          id: highlight.id,
+          mine: Boolean(highlight.mine),
+          count: highlight.count || 1,
+          start,
+          end: start + highlight.selector.exact.length,
+        };
+      })
+      .filter(Boolean);
+
+    paintHighlights(root, index, segmentHighlights(resolved));
+
+    return () => clearHighlights(root);
+  }, [html, serifReady, highlights, highlightsHidden]);
+
   const markup = useMemo(() => ({ __html: html }), [html]);
+
+  // Delegated, not one listener per mark: the marks are created outside React
+  // and there can be a lot of them. Enter and Space match the button role they
+  // carry, so a highlight is reachable without a pointer.
+  const openFromEvent = (event) => {
+    const id = annotationIdFromEvent(event);
+    if (!id || !onOpenHighlight) return;
+    const mark = event.target.closest('mark[data-annotation]');
+    onOpenHighlight(id, mark?.textContent || '');
+  };
 
   return (
     <div
       ref={contentRef}
       className="blog-content"
       data-pretext-ready={serifReady ? 'true' : 'false'}
+      onClick={openFromEvent}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        if (!annotationIdFromEvent(event)) return;
+        event.preventDefault();
+        openFromEvent(event);
+      }}
       dangerouslySetInnerHTML={markup}
     />
   );
