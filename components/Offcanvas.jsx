@@ -9,7 +9,10 @@ export default function Offcanvas() {
   const { open, close } = useOffcanvas();
   const pathname = usePathname();
   const { user, isLoading } = useAuth();
-  const accountHref = String(user?.role || '').toUpperCase() === 'ADMIN' ? '/admin' : '/';
+  // Readers used to be sent to '/' here too, for the same reason the header did:
+  // there was no profile to send them to.
+  const accountHref =
+    String(user?.role || '').toUpperCase() === 'ADMIN' ? '/admin' : '/users/profile';
 
   const isActive = (href) => (
     href === '/' ? pathname === '/' : pathname.startsWith(href)

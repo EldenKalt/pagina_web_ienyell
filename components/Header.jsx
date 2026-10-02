@@ -57,7 +57,24 @@ export default function Header() {
           <Link className="header-commission-cta" href="/services">
             Request a Commission
           </Link>
-          {isLoading ? <span className="btn-login header-account-loading" aria-hidden="true" /> : user ? <Link className="btn-login" href={String(user.role || '').toUpperCase() === 'ADMIN' ? '/admin' : '/'}>{user.name || 'My account'}</Link> : <Link className="btn-login" href="/users/login">Log in</Link>}
+          {/* An admin lands in the admin; everyone else lands on their profile.
+              Readers used to be sent to '/' — the home page — because there was
+              no profile to send them to, which made the button look broken:
+              it is the only control in the header that appeared to do nothing. */}
+          {isLoading ? (
+            <span className="btn-login header-account-loading" aria-hidden="true" />
+          ) : user ? (
+            <Link
+              className="btn-login"
+              href={String(user.role || '').toUpperCase() === 'ADMIN' ? '/admin' : '/users/profile'}
+            >
+              {user.name || 'My account'}
+            </Link>
+          ) : (
+            <Link className="btn-login" href="/users/login">
+              Log in
+            </Link>
+          )}
           <OffcanvasTrigger />
         </div>
       </header>
