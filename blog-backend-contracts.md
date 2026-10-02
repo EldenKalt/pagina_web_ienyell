@@ -231,6 +231,17 @@ eso está construido.
 sus ejercicios y tareas, y los comentarios de la profesora sobre ellos. También
 las notificaciones de reacciones ajenas y silenciar una conversación.
 
+**Registro de lecturas, a futuro.** El perfil debe mostrar *qué ha leído* una
+persona, y eso no existe: "leer más tarde" es lo que alguien guarda, no lo que ha
+leído. Hace falta una tabla que registre la lectura de un post por usuario, y
+antes que eso dos decisiones:
+
+- **Qué cuenta como leído.** Abrir el post, llegar al final, o un porcentaje del
+  artículo. La capa de anotaciones ya mide el cuerpo, así que la señal es
+  obtenible; lo que falta es el umbral.
+- **Si el lector puede ocultarlo.** Es la sección más expuesta del perfil
+  público, y la que más probablemente alguien quiera apagar.
+
 **Lo que el perfil NO es**: no hay mensajería privada ni amigos. Otras personas
 ven qué ha leído alguien, sus comentarios y sus notas públicas, y nada más. Los
 lectores no suben contenido ni publican nada.

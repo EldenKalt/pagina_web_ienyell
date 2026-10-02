@@ -28,6 +28,11 @@ import { getPlaceholderPosts } from '../../../data/blogPlaceholderPosts';
  * Those are agreed later work and are not sketched here; neither are the
  * reader's courses, their exercise results or the teacher's comments on them.
  *
+ * WHAT SOMEONE HAS READ is part of the public profile and is NOT built, because
+ * nothing records it: "Read later" is what a reader kept, not what they read.
+ * Two decisions come before the table — what counts as read, and whether a
+ * reader can hide it. See blog-backend-contracts.md §4.4.
+ *
  * THE PUBLIC PREVIEW is not decoration. The whole point of publishing a note is
  * that other people read it, so being able to check exactly what is exposed
  * before publishing more is the feature. It renders this same page with the
@@ -213,6 +218,7 @@ export default function UserProfilePage() {
           count={savedPosts.length}
           countLabel={savedPosts.length === 1 ? 'post' : 'posts'}
           description="What you kept with the bookmark."
+          note="What you have actually read is a separate, public section, and nothing records it yet."
           empty="Nothing saved yet."
         >
           <BlogPostGrid posts={savedPosts} layout="rows" headingLevel={3} showExcerpt />
