@@ -63,10 +63,26 @@ export default function BlogPostActions({
     title: locked ? 'Sign in to use this' : undefined,
   });
 
+  // A control with nothing behind it reads as a bug — the account button in the
+  // header taught that the hard way. These three have no endpoint at all, so
+  // they say so instead of silently doing nothing: still visible, so the layout
+  // can be judged whole, but announced as unavailable and inert to the pointer.
+  const notWired = (label, why) => ({
+    type: 'button',
+    onClick: (event) => event.preventDefault(),
+    'aria-disabled': true,
+    'aria-label': `${label} — not available yet`,
+    title: why,
+    className: 'is-unwired',
+  });
+
   return (
     <div className="blog-post-actions">
       <div className="blog-post-actions-group">
-        <button className="blog-post-action" {...control(`Like this post, ${likes} so far`)}>
+        <button
+          {...notWired(`Like this post, ${likes} so far`, 'Reactions are not stored yet')}
+          className="blog-post-action is-unwired"
+        >
           <BlogIcon name="favorite" />
           <span className="blog-post-action-count" {...placeholderAttrs('post.stats.likes')}>{likes}</span>
         </button>
@@ -84,7 +100,10 @@ export default function BlogPostActions({
           <span className="blog-post-action-count" {...placeholderAttrs('post.stats.comments')}>{comments}</span>
         </button>
 
-        <button className="blog-post-action" {...control(`Share this post, shared ${shares} times`)}>
+        <button
+          {...notWired(`Share this post, shared ${shares} times`, 'Sharing is not wired up yet')}
+          className="blog-post-action is-unwired"
+        >
           <BlogIcon name="share" />
           <span className="blog-post-action-count" {...placeholderAttrs('post.stats.shares')}>{shares}</span>
         </button>
@@ -112,8 +131,8 @@ export default function BlogPostActions({
         {/* The design notes this button changes with the content: it plays the
             article's narration, or the transcription when there is one. */}
         <button
-          className="blog-post-action blog-post-action--icon"
-          {...control('Listen to this post')}
+          {...notWired('Listen to this post', 'There is no narration for this post yet')}
+          className="blog-post-action blog-post-action--icon is-unwired"
         >
           <BlogIcon name="play" />
         </button>

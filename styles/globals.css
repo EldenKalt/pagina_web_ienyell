@@ -6559,6 +6559,18 @@ button.srv-tool-card { font: inherit; }
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+/* A control with nothing behind it yet. Still visible, so the composition can be
+   judged whole, but it does not pretend: dimmed, no hover, and the cursor says
+   it will not respond. The tooltip on it says why. */
+.is-unwired {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.is-unwired:hover {
+  background: none;
+  color: inherit;
+}
+
 /* Replies.
    ONE LEVEL of indentation and no more: the reading column is 680px, and a
    thread that nests without limit ends as a column of single words. A reply

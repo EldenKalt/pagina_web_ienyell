@@ -152,7 +152,16 @@ export default function BlogComment({ comment, onOpenHighlight, isReply = false 
       <p className="blog-comment-body">{comment.body}</p>
 
       <div className="blog-comment-actions">
-        <button className="blog-comment-action" {...control(`Like this comment, ${comment.likes ?? 0} so far`)}>
+        {/* Nothing stores a reaction yet, so it says so rather than appearing to
+            work. See BlogPostActions. */}
+        <button
+          type="button"
+          className="blog-comment-action is-unwired"
+          onClick={(event) => event.preventDefault()}
+          aria-disabled="true"
+          title="Reactions are not stored yet"
+          aria-label={`Like this comment, ${comment.likes ?? 0} so far — not available yet`}
+        >
           <BlogIcon name="favorite" size={24} />
           <span {...placeholderAttrs('comment.likes')}>{comment.likes ?? 0}</span>
         </button>

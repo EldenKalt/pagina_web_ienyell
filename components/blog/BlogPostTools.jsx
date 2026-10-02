@@ -124,7 +124,8 @@ export default function BlogPostTools({
 
       <ul className="blog-tools-stats">
         <li>
-          <button type="button" className="blog-tools-stat" onClick={guard()} aria-label={`Like this post, ${formatCount(stats?.likes)} so far`}>
+          {/* No endpoint behind it; see BlogPostActions for why these say so. */}
+          <button type="button" className="blog-tools-stat is-unwired" onClick={(e) => e.preventDefault()} aria-disabled="true" title="Reactions are not stored yet" aria-label={`Like this post, ${formatCount(stats?.likes)} so far — not available yet`}>
             <BlogIcon name="favorite" size={22} />
             <span {...placeholderAttrs('post.stats.likes')}>{formatCount(stats?.likes)}</span>
           </button>
@@ -137,7 +138,7 @@ export default function BlogPostTools({
           </button>
         </li>
         <li>
-          <button type="button" className="blog-tools-stat" onClick={guard()} aria-label={`Share this post, shared ${formatCount(stats?.shares)} times`}>
+          <button type="button" className="blog-tools-stat is-unwired" onClick={(e) => e.preventDefault()} aria-disabled="true" title="Sharing is not wired up yet" aria-label={`Share this post, shared ${formatCount(stats?.shares)} times — not available yet`}>
             <BlogIcon name="share" size={22} />
             <span {...placeholderAttrs('post.stats.shares')}>{formatCount(stats?.shares)}</span>
           </button>
