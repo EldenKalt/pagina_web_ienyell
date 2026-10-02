@@ -51,3 +51,5 @@ aider.conf.yml
 
 # ─── Codeium / Supermaven ────────────────────────────────────
 .codeium/
+# ───Prisma ───────────────────────────────────────────────────
+backend/prisma/seed-admin.js

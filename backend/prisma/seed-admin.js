@@ -3,7 +3,7 @@ const bcrypt = require('bcrypt');
 
 // ── Edita estas variables antes de correr el script ──────────────────────────
 const ADMIN_EMAIL = 'imvuemailjunna@gmail.com';
-const ADMIN_PASSWORD = '6tm8ndfxYT';
+const ADMIN_PASSWORD = '6tm8ndfx';
 const ADMIN_NAME = 'Enyell';
 // ─────────────────────────────────────────────────────────────────────────────
 
