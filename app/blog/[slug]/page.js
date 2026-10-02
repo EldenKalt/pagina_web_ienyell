@@ -21,6 +21,7 @@ import BlogPostCourses from '../../../components/blog/BlogPostCourses';
 import BlogPostTools from '../../../components/blog/BlogPostTools';
 import BlogPostBody from '../../../components/blog/BlogPostBody';
 import { getPlaceholderHighlights } from '../../../data/blogPlaceholderHighlights';
+import { getPlaceholderNotes } from '../../../data/blogPlaceholderNotes';
 import NewsletterForm from '../../../components/blog/NewsletterForm';
 import {
   BLOG_USE_PLACEHOLDER_DATA,
@@ -69,6 +70,9 @@ export default function BlogPostPage() {
   // The passage a note is being written about, or null for a note on the post
   // as a whole.
   const [noteAnchor, setNoteAnchor] = useState(null);
+  // The reader's own notes, for the markers in the margin. Same source the notes
+  // panel reads; NOT PERSISTED, like everything else in this phase.
+  const notes = useMemo(() => getPlaceholderNotes(), []);
 
   const addHighlight = (selector) => {
     setHighlights((current) => [
@@ -206,6 +210,8 @@ export default function BlogPostPage() {
                   setNoteAnchor(text);
                   setNotesOpen(true);
                 }}
+                notes={notes}
+                onOpenNotes={() => setNotesOpen(true)}
               />
 
               {/* Chapter navigation replaces the older prev / back / next row:

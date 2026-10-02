@@ -15,8 +15,20 @@
  * not a reply to anyone. A note published into the thread is a contribution, not
  * a change of type — it stays a note everywhere else.
  *
- * `anchor` is the article fragment a note sits beside. A note without one belongs
- * to the post as a whole and has no margin position.
+ * `anchor` is the article fragment a note sits beside, stored as the quote
+ * itself. A note without one belongs to the post as a whole and has no margin
+ * position.
+ *
+ * The anchors below are real passages of the first mock post, because a note is
+ * placed in the margin by RESOLVING its anchor against the rendered article —
+ * see lib/annotations. Anchors invented out of thin air resolve to nothing and
+ * the note silently loses its margin position, which is exactly what the earlier
+ * placeholders did.
+ *
+ * BACKEND NOTE: the quote alone is enough while the passages are long and
+ * distinctive. The API should send the same {exact, prefix, suffix} an
+ * annotation carries, or a note anchored to a sentence that repeats will land on
+ * the first occurrence rather than the right one.
  *
  * Edge cases seeded: a private note, a published one, one with no anchor, and one
  * long enough to exercise the card.
@@ -32,7 +44,7 @@ export const BLOG_PLACEHOLDER_NOTES = [
     author: READER,
     createdAt: '2026-09-21T08:30:00.000Z',
     anchor:
-      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Ut et massa mi. Aliquam in hendrerit urna.',
+      'Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.',
     // (Dynamic content: the article fragment this note sits beside)
     body: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit sed do eiusmod tempor.',
     // (Dynamic content: note.body — what the reader wrote for themselves)
@@ -43,7 +55,8 @@ export const BLOG_PLACEHOLDER_NOTES = [
     id: 2,
     author: READER,
     createdAt: '2026-09-20T19:05:00.000Z',
-    anchor: 'Pellentesque sit amet sapien fringilla, mattis ligula consectetur, ultrices mauris.',
+    anchor:
+      'Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt.',
     body: 'Consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.',
     isPublic: true,
     // EDGE CASE: published — also appears in the post's thread and on the profile

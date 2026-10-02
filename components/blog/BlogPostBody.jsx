@@ -5,6 +5,7 @@ import { fontsReady, measureText, readTextStyle } from '../../lib/pretext';
 import { applyOutlineIds } from '../../lib/blogOutline';
 import { indexText, resolveSelector } from '../../lib/annotations';
 import BlogSelectionToolbar from './BlogSelectionToolbar';
+import BlogMarginNotes from './BlogMarginNotes';
 import {
   segmentHighlights,
   paintHighlights,
@@ -87,6 +88,8 @@ export default function BlogPostBody({
   onHighlight,
   onComment,
   onNote,
+  notes = [],
+  onOpenNotes,
 }) {
   const contentRef = useRef(null);
   const blocksRef = useRef([]);
@@ -266,6 +269,11 @@ export default function BlogPostBody({
 
   return (
     <>
+    {/* The shell exists only to be the containing block for the margin layer,
+        which sits in the gutter beside the article. .blog-post-main is a plain
+        block with no gap semantics, so wrapping the article in it changes
+        nothing about the column. */}
+    <div className="blog-content-shell">
     <div
       ref={contentRef}
       className="blog-content"
@@ -279,6 +287,9 @@ export default function BlogPostBody({
       }}
       dangerouslySetInnerHTML={markup}
     />
+
+    <BlogMarginNotes contentRef={contentRef} notes={notes} onOpenAll={onOpenNotes} />
+    </div>
 
     {/* Rendered here rather than by the page so the article element stays
         private to this component: the toolbar needs the ref to scope the

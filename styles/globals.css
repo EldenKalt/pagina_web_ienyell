@@ -5084,6 +5084,109 @@ button.srv-tool-card { font: inherit; }
   line-height: 1.7;
 }
 
+/* Margin notes.
+   The layer is hidden below 1200px: measured, the space beside the article is
+   11px at 1100 and only reaches ~78px at 1280, because the grid's column-gap
+   grows with the viewport and eats the surplus. A marker does not fit at the
+   lower end, and the notes stay reachable from "Read my notes". */
+.blog-content-shell {
+  position: relative;
+}
+.blog-margin-notes {
+  display: none;
+}
+@media (min-width: 1200px) {
+  .blog-margin-notes {
+    display: block;
+    position: absolute;
+    top: 0;
+    /* Just outside the reading column, in the gutter. */
+    left: calc(100% + 14px);
+    width: 28px;
+    height: 100%;
+    pointer-events: none;
+  }
+}
+.blog-margin-note {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--paper);
+  color: var(--text-muted);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: color 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+.blog-margin-note:hover,
+.blog-margin-note.is-open {
+  color: var(--accent-dark);
+  border-color: var(--accent);
+  transform: scale(1.08);
+}
+/* A published note is one others can read; it is worth telling apart from a
+   private one at a glance, not only once it is open. */
+.blog-margin-note.is-public {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  color: var(--accent-dark);
+}
+.blog-margin-note:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.blog-margin-popover {
+  position: fixed;
+  z-index: 1150;
+  width: min(17.5rem, calc(100vw - 32px));
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--paper);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+}
+.blog-margin-popover-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.blog-margin-popover-meta .is-public {
+  color: var(--accent-dark);
+  font-weight: 600;
+}
+.blog-margin-popover-body {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.blog-margin-popover-all {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.blog-margin-popover-all:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* The selection toolbar. Fixed and portalled for the same reason the "..."
    menu is: .page-transition sets a transform and would be the containing block
    for anything fixed inside it. */
