@@ -1,299 +1,106 @@
-'use client';
-
-import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import DOMPurify from 'dompurify';
-import { buildOutline } from '../../../lib/blogOutline';
-import { slugifyCmsValue } from '../../../lib/publishing';
-import { getApiBase } from '../../../lib/authHelper';
-import BlogPostSequenceNav from '../../../components/blog/BlogPostSequenceNav';
-import BlogPostActions from '../../../components/blog/BlogPostActions';
-import BlogPostAuthor from '../../../components/blog/BlogPostAuthor';
-import BlogPostComments from '../../../components/blog/BlogPostComments';
-import BlogCommentsPanel from '../../../components/blog/BlogCommentsPanel';
-import BlogHighlightPanel from '../../../components/blog/BlogHighlightPanel';
-import BlogNotesPanel from '../../../components/blog/BlogNotesPanel';
-import BlogPostHeader from '../../../components/blog/BlogPostHeader';
-import BlogPostRail from '../../../components/blog/BlogPostRail';
-import BlogPostRelated from '../../../components/blog/BlogPostRelated';
-import BlogPostCourses from '../../../components/blog/BlogPostCourses';
-import BlogPostTools from '../../../components/blog/BlogPostTools';
-import BlogPostBody from '../../../components/blog/BlogPostBody';
-import { getPlaceholderHighlights } from '../../../data/blogPlaceholderHighlights';
-import { getPlaceholderNotes } from '../../../data/blogPlaceholderNotes';
-import NewsletterForm from '../../../components/blog/NewsletterForm';
+import { notFound } from 'next/navigation';
+import BlogPostView from '../../../components/blog/BlogPostView';
+import { sanitizeArticleHtml } from '../../../lib/articleHtml';
 import {
   BLOG_USE_PLACEHOLDER_DATA,
   getPlaceholderPostBySlug,
 } from '../../../data/blogPlaceholderPosts';
-import { getPlaceholderCommentCount } from '../../../data/blogPlaceholderComments';
-import { getPlaceholderCourses } from '../../../data/blogPlaceholderCourses';
 
-function sanitizeHtml(html) {
-  if (typeof window === 'undefined') return '';
-  return DOMPurify.sanitize(html, {
-    ADD_TAGS: ['iframe'],
-    ADD_ATTR: ['allow', 'allowfullscreen', 'frameborder', 'scrolling', 'target'],
-  });
+/**
+ * The post page, as a server component.
+ *
+ * It used to be a client component that fetched the post in an effect, which
+ * meant the article was never in the HTML the server sent: a reader saw a
+ * spinner, and a crawler saw nothing at all. The post is resolved here now and
+ * the body is sanitised once, on the server, so it ships in the initial
+ * response. Everything a reader can touch lives in BlogPostView, which is still
+ * a client component — it simply receives its data rather than going for it.
+ *
+ * SANITISING ONCE IS NOT AN OPTIMISATION, it is a correctness requirement.
+ * Sanitising again on the client would produce a second version of the markup
+ * and React would tear the two apart as a hydration mismatch. See
+ * lib/articleHtml.js, which also holds the contract for the day the content
+ * stops being the author's own.
+ *
+ * TODO, with the same shape as app/blog/page.js: replace getPlaceholderPostBySlug
+ * with the live read (GET /api/blog/:slug) and drop the BLOG_USE_PLACEHOLDER_DATA
+ * branch. The fetch moves here, which means the session cookie has to be
+ * forwarded for anything reader-specific; the article itself is public.
+ */
+
+async function readPost(slug) {
+  if (BLOG_USE_PLACEHOLDER_DATA) return getPlaceholderPostBySlug(slug) || null;
+
+  // Deliberately unimplemented rather than half-implemented: a server fetch
+  // needs its own cache policy and cookie forwarding, and guessing at those
+  // would be worse than the explicit failure.
+  throw new Error(
+    'The post page has no live read yet. Wire GET /api/blog/:slug here, or keep ' +
+      'BLOG_USE_PLACEHOLDER_DATA on.',
+  );
 }
 
-export default function BlogPostPage() {
-  const { slug } = useParams();
-  const [post, setPost] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  // The comments panel is opened from the action bar, which renders twice — above
-  // and below the article — so the state has to sit above both of them.
-  const [commentsOpen, setCommentsOpen] = useState(false);
-  const commentTotal = getPlaceholderCommentCount();
-  // The fragment whose reactions panel is open, or null. Opened today from a
-  // comment's quoted fragment; the annotation layer will also open it from a
-  // highlight painted in the article itself.
-  const [highlightFragment, setHighlightFragment] = useState(null);
-  const [notesOpen, setNotesOpen] = useState(false);
-  // One bookmark shown in two places — the action bar and the tools panel — so
-  // the state sits above both. Not persisted: there is no bookmarks endpoint.
-  const [saved, setSaved] = useState(false);
-  // Hiding the inline highlights is a reading preference the action bar offers
-  // from its "..." menu. It sits here for the same reason `saved` does: the bar
-  // renders twice and the two copies must not disagree. NOT WIRED — the
-  // annotation layer that would read it has not been built.
-  const [highlightsHidden, setHighlightsHidden] = useState(false);
-  // NOT PERSISTED. The painted annotations come from the placeholder file during
-  // the UI phase; lib/annotations resolves them against the rendered article, so
-  // what is exercised here is the real anchoring, only the source is mock.
-  // State, not a memo: the selection toolbar adds to it. NOT PERSISTED — a
-  // highlight made here lives until the page is reloaded. Storage is the next
-  // piece; what this exercises today is the anchoring and the painting.
-  const [highlights, setHighlights] = useState(() => getPlaceholderHighlights());
-  // The passage a note is being written about, or null for a note on the post
-  // as a whole.
-  const [noteAnchor, setNoteAnchor] = useState(null);
-  // The reader's own notes, for the markers in the margin. Same source the notes
-  // panel reads; NOT PERSISTED, like everything else in this phase.
-  const notes = useMemo(() => getPlaceholderNotes(), []);
+export async function generateMetadata({ params }) {
+  const { slug } = await params;
+  const post = await readPost(slug);
 
-  const addHighlight = (selector) => {
-    setHighlights((current) => [
-      ...current,
-      { id: `local-${Date.now()}`, mine: true, count: 1, selector },
-    ]);
+  if (!post) return { title: 'Article not found' };
+
+  // The excerpt is written as a card summary, which is the same job a meta
+  // description does, so it is reused rather than invented.
+  const description = post.excerpt || undefined;
+
+  return {
+    title: post.title,
+    description,
+    alternates: { canonical: `/blog/${slug}` },
+    openGraph: {
+      type: 'article',
+      title: post.title,
+      description,
+      url: `/blog/${slug}`,
+      publishedTime: post.publishedAt || undefined,
+      modifiedTime: post.updatedAt || undefined,
+      authors: post.author?.name ? [post.author.name] : undefined,
+      tags: post.keywords || undefined,
+      images: post.coverUrl ? [{ url: post.coverUrl, alt: post.title }] : undefined,
+    },
+    twitter: {
+      card: post.coverUrl ? 'summary_large_image' : 'summary',
+      title: post.title,
+      description,
+    },
   };
+}
 
-  const relatedPosts = Array.isArray(post?.relatedPosts) ? post.relatedPosts : [];
-  const previousPost = post?.previousPost || null;
-  const nextPost = post?.nextPost || null;
-  // Sanitised once per post: the body is injected, the outline is read from the
-  // same string, and the chapter index links to the ids stamped from it. Both must
-  // come from the SAME html or their positions drift apart.
-  const safeHtml = useMemo(() => sanitizeHtml(post?.content), [post?.content]);
-  const outline = useMemo(() => buildOutline(safeHtml), [safeHtml]);
+export default async function BlogPostPage({ params }) {
+  const { slug } = await params;
+  const post = await readPost(slug);
 
-  useEffect(() => {
-    if (!slug) return undefined;
+  // A missing post is a 404, not an error message inside a page that otherwise
+  // looks fine. The old client version could only render its own message.
+  if (!post) notFound();
 
-    // UI phase: read from the local placeholder posts. Remove this branch — and the
-    // BLOG_USE_PLACEHOLDER_DATA import — when reconnecting to the live API.
-    if (BLOG_USE_PLACEHOLDER_DATA) {
-      const placeholder = getPlaceholderPostBySlug(slug);
-      setPost(placeholder);
-      setError(placeholder ? '' : 'This article is not available.');
-      setLoading(false);
-      return undefined;
-    }
-
-    const controller = new AbortController();
-
-    const loadPost = async () => {
-      try {
-        setPost(null);
-        setError('');
-        setLoading(true);
-
-        const apiBase = getApiBase();
-
-        if (!apiBase) {
-          throw new Error('NEXT_PUBLIC_API_URL is not configured.');
-        }
-
-        const response = await fetch(`${apiBase}/api/blog/${encodeURIComponent(slug)}`, {
-          signal: controller.signal,
-          headers: { Accept: 'application/json' },
-        });
-
-        if (!response.ok) {
-          const requestError = new Error(
-            response.status === 404
-              ? 'This article is not available.'
-              : 'Could not load the article.',
-          );
-          requestError.status = response.status;
-          throw requestError;
-        }
-
-        const data = await response.json();
-        setPost(data);
-      } catch (loadError) {
-        if (loadError.name !== 'AbortError') {
-          setError(
-            loadError.status === 404
-              ? 'This article is not available.'
-              : loadError.message || 'Could not load the article.',
-          );
-        }
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    };
-
-    loadPost();
-
-    return () => controller.abort();
-  }, [slug]);
+  const safeHtml = sanitizeArticleHtml(post.content);
 
   return (
     <main className="blog-post-page">
       <Link href="/blog" className="blog-back-link">
         <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-          <path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          <path
+            d="M10 3L5 8l5 5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </svg>
         Back to blog
       </Link>
 
-      {loading ? (
-        <div className="blog-loading" role="status" aria-live="polite">
-          <span className="blog-loading-spinner" />
-          Loading article…
-        </div>
-      ) : null}
-
-      {!loading && error ? <div className="blog-public-error" role="alert">{error}</div> : null}
-
-      {!loading && post ? (
-        <article className="blog-post-article">
-          <div className="blog-post-detail-layout has-rail">
-            <BlogPostHeader
-              post={post}
-              stats={{ ...post.stats, comments: commentTotal }}
-              onOpenComments={() => setCommentsOpen(true)}
-              saved={saved}
-              onToggleSave={() => setSaved((v) => !v)}
-              highlightsHidden={highlightsHidden}
-              onToggleHighlights={() => setHighlightsHidden((v) => !v)}
-            />
-
-            <BlogPostRail post={post} outline={outline} />
-
-            <div className="blog-post-main">
-              {/* The cover opens the article itself, in the reading column —
-                  not a full-width band above both columns. */}
-              {post.coverUrl ? (
-                <img className="blog-post-cover" src={post.coverUrl} alt={post.title} />
-              ) : null}
-
-              <BlogPostBody
-                html={safeHtml}
-                outline={outline}
-                highlights={highlights}
-                highlightsHidden={highlightsHidden}
-                onOpenHighlight={(id, text) => setHighlightFragment(text)}
-                onHighlight={addHighlight}
-                // Commenting on a passage highlights it too: a comment anchored
-                // to text nobody can see the boundaries of is a comment about
-                // nothing in particular.
-                onComment={(selector, text) => {
-                  addHighlight(selector);
-                  setHighlightFragment(text);
-                }}
-                onNote={(selector, text) => {
-                  setNoteAnchor(text);
-                  setNotesOpen(true);
-                }}
-                notes={notes}
-                onOpenNotes={() => setNotesOpen(true)}
-              />
-
-              {/* Chapter navigation replaces the older prev / back / next row:
-                  the reference puts one control here, and two sets of previous
-                  and next links on the same page would compete. */}
-              <BlogPostSequenceNav
-                sequence={post.sequence}
-                previousPost={previousPost}
-                nextPost={nextPost}
-              />
-
-              {/* The action bar repeats under the article, as in the reference —
-                  a reader who has finished should not have to scroll back up to
-                  react to it. */}
-              <BlogPostActions
-                stats={{ ...post.stats, comments: commentTotal }}
-                onOpenComments={() => setCommentsOpen(true)}
-                saved={saved}
-                onToggleSave={() => setSaved((v) => !v)}
-                highlightsHidden={highlightsHidden}
-                onToggleHighlights={() => setHighlightsHidden((v) => !v)}
-              />
-
-              <BlogPostAuthor author={post.author} />
-
-              <BlogPostComments
-                slug={slug}
-                total={commentTotal}
-                onOpenHighlight={setHighlightFragment}
-              />
-
-              <div className="blog-post-newsletter">
-                <h2>Get new articles by email</h2>
-                <NewsletterForm variant="inline" />
-              </div>
-            </div>
-
-            <BlogPostRelated recommendations={relatedPosts} />
-
-            <BlogPostCourses courses={getPlaceholderCourses()} />
-
-            <BlogCommentsPanel
-              open={commentsOpen}
-              onClose={() => setCommentsOpen(false)}
-              slug={slug}
-              total={commentTotal}
-            />
-
-            <BlogHighlightPanel
-              open={Boolean(highlightFragment)}
-              onClose={() => setHighlightFragment(null)}
-              slug={slug}
-              fragment={highlightFragment}
-            />
-
-            <BlogNotesPanel
-              anchor={noteAnchor}
-              open={notesOpen}
-              onClose={() => {
-                setNotesOpen(false);
-                setNoteAnchor(null);
-              }}
-              slug={slug}
-            />
-
-            <BlogPostTools
-              stats={{ ...post.stats, comments: commentTotal }}
-              sequence={post.sequence}
-              seriesHref={
-                post.sequence?.seriesName
-                  ? `/blog/series/${slugifyCmsValue(post.sequence.seriesName, 'series')}`
-                  : null
-              }
-              saved={saved}
-              onToggleSave={() => setSaved((v) => !v)}
-              onAddNote={() => setNotesOpen(true)}
-              onReadNotes={() => setNotesOpen(true)}
-              onOpenComments={() => setCommentsOpen(true)}
-            />
-          </div>
-        </article>
-      ) : null}
+      <BlogPostView post={post} safeHtml={safeHtml} slug={slug} />
     </main>
   );
 }

@@ -128,13 +128,20 @@ export default function BlogPostBody({
     const root = contentRef.current;
     if (!root || !serifReady || jumpedRef.current) return;
 
-    jumpedRef.current = true;
-
     const id = decodeURIComponent(window.location.hash.slice(1));
     if (!id) return;
 
     const target = root.querySelector(`#${CSS.escape(id)}`);
+    // Not there YET is not the same as not there. The ids are stamped from the
+    // outline, and the outline is now built after mount — it has to be, or the
+    // rail index would differ between the server render and the first client
+    // one. So this effect can run before a single id exists, and claiming the
+    // jump at that point meant it never happened at all. The claim is made only
+    // once the target has actually been found; the effect re-runs when the
+    // outline arrives.
     if (!target) return;
+
+    jumpedRef.current = true;
 
     // A single jump is not enough. Everything above the target keeps changing
     // height for a while after the ids exist — the serif reflows the paragraphs,
@@ -171,7 +178,7 @@ export default function BlogPostBody({
       cancelAnimationFrame(frame);
       clearTimeout(timer);
     };
-  }, [serifReady]);
+  }, [serifReady, outline]);
 
   // Re-runs when the article changes or once the serif resolves, because the
   // block index is only meaningful against the font the text is painted in.
