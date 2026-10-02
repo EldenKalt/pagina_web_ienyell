@@ -160,12 +160,13 @@ se renderice como un comentario. Dónde aparece cada cosa:
 | | nota privada | nota publicada | comentario |
 |---|---|---|---|
 | hilo público del post | no | sí | sí |
-| perfil del autor | sí | sí | no |
+| perfil del autor | sí | sí | sí |
 | margen de su párrafo | sí | sí | no |
 | panel del resaltado | no | no | sí |
 
-Esa última fila es la que los separa: el panel de un fragmento es conversación, y
-una nota es la lectura de alguien, no una respuesta a nadie.
+La fila del panel del resaltado es la que los separa: el panel de un fragmento es
+conversación, y una nota es la lectura de alguien, no una respuesta a nadie. El
+perfil lleva las dos cosas — es la página del propio lector.
 
 ### 4.3 Anotaciones y resaltados
 
@@ -207,13 +208,40 @@ como string y se resuelve con `{exact}`; es suficiente mientras los pasajes sean
 largos y distintivos, pero una nota anclada a una frase repetida caerá en la
 primera aparición. Está anotado en `data/blogPlaceholderNotes.js`.
 
-### 4.4 Guardar un post
+### 4.4 El perfil del lector
+
+Ningún endpoint existe. Lo que la página ya consume, y de dónde tendrá que
+venir:
+
+| Sección | Fuente que hará falta |
+|---|---|
+| Notas | `GET /api/users/me/notes` — todas las del lector, de todos los posts, no las de uno solo como §4.2 |
+| Comentarios | `GET /api/users/me/comments`, con las respuestas y conversaciones derivadas |
+| Resaltados | `GET /api/users/me/annotations`, con el post de cada uno unido — la anotación no lo lleva hoy |
+| Leer más tarde | El listado de §4.5 |
+| Lista de deseos | Tabla nueva. `model Product` existe; una lista de deseos no |
+| Redes del lector | Campos nuevos en `User`, igual que `pronouns` |
+| Puntos | Sistema de gamificación. **Las reglas no están decididas**: ni cuántos puntos da cada acción ni qué se canjea |
+
+El perfil es **por niveles**: comprar un curso, pedir un servicio o encargar un
+producto desbloquea paneles propios —descargas, envíos, facturación—. Nada de
+eso está construido.
+
+**A futuro, acordado y sin construir**: los cursos del lector, los resultados de
+sus ejercicios y tareas, y los comentarios de la profesora sobre ellos. También
+las notificaciones de reacciones ajenas y silenciar una conversación.
+
+**Lo que el perfil NO es**: no hay mensajería privada ni amigos. Otras personas
+ven qué ha leído alguien, sus comentarios y sus notas públicas, y nada más. Los
+lectores no suben contenido ni publican nada.
+
+### 4.5 Guardar un post
 
 No hay endpoint. La interfaz tiene el marcador en dos sitios —la barra de
 acciones y el panel de herramientas— compartiendo un único estado, y no persiste.
 Hace falta un listado para el perfil.
 
-### 4.5 Reacciones y contadores
+### 4.6 Reacciones y contadores
 
 `stats.{likes, comments, shares}` se muestran en la cabecera, bajo el artículo,
 en el panel de herramientas y en cada tarjeta de recomendación. Hoy son
@@ -222,7 +250,7 @@ inventados y **optimistas**: pulsar no persiste nada.
 Decisiones pendientes: si "shares" se cuenta de verdad o se quita, y si los likes
 son por usuario (requiere una tabla de reacciones) o un contador suelto.
 
-### 4.6 Cursos
+### 4.7 Cursos
 
 **No existen como tipo de contenido**: no hay modelo, ni ruta, ni admin. El
 enlace "Learn" de la cabecera es un `href="#"`. El bloque está maquetado contra
@@ -244,7 +272,7 @@ updatedAt, stats, badge, href`.
 | `/blog/series/[slug]` | Componente cliente, serie derivada de `seriesName` |
 | `/blog/archive?topic=` | Funciona. El archive lo lee con `useSearchParams` y lo enlazan los chips del rail y de la serie |
 | `/blog/archive?series=` | Funciona. Compone con `?topic=` y con la búsqueda, y lo enlaza la página de serie como "Search within this series". **El parámetro ya se envía a `GET /api/blog`, que todavía no lo entiende** |
-| `/users/profile` | **No existe.** Lo enlazan el compositor de notas y el panel de notas |
+| `/users/profile` | Construido, vista privada con previsualización de la pública. Exige sesión y redirige a `/users/login` sin ella. **Sin ningún endpoint detrás** |
 
 ---
 

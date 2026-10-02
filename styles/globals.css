@@ -5084,6 +5084,325 @@ button.srv-tool-card { font: inherit; }
   line-height: 1.7;
 }
 
+/* ── /users/profile ─────────────────────────────────────────────────────────
+   Reuses the blog's measure and section rhythm so the two belong to the same
+   site; the only new shapes are the ones the blog has no equivalent for. */
+.profile-page {
+  width: min(56rem, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 48px 0 80px;
+  display: grid;
+  gap: clamp(32px, 4vw, 56px);
+}
+.profile-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: clamp(24px, 3vw, 32px);
+  border-bottom: 1px solid var(--line);
+}
+.profile-identity {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  min-width: 0;
+}
+.profile-avatar {
+  width: 64px;
+  height: 64px;
+  flex: none;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.profile-avatar--fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: 26px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.profile-name {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(1.5rem, 1.2rem + 1.2vw, 2rem);
+  line-height: 1.15;
+}
+.profile-pronouns {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+.profile-socials {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+}
+.profile-socials a {
+  color: var(--ink-soft);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.profile-socials a:hover {
+  color: var(--accent-dark);
+}
+.profile-points {
+  max-width: 22rem;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: var(--surface);
+}
+.profile-points-total {
+  margin: 0;
+  color: var(--ink);
+  font-size: 15px;
+}
+.profile-points-total strong {
+  font-size: 24px;
+}
+.profile-points-hint {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+/* Two ways of looking at the same page, so a reader can check what is exposed
+   before publishing more. */
+.profile-viewswitch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  justify-self: start;
+}
+.profile-viewbtn {
+  min-height: 40px;
+  padding: 8px 18px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+.profile-viewbtn.is-active {
+  background: var(--ink);
+  color: var(--paper);
+}
+.profile-viewbtn:not(.is-active):hover {
+  color: var(--ink);
+}
+.profile-viewbtn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.profile-public-banner {
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--accent-tint);
+  color: var(--ink-soft);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.profile-section {
+  display: grid;
+  gap: 14px;
+}
+.profile-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 14px;
+}
+.profile-section-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(1.25rem, 1rem + 0.8vw, 1.5rem);
+  line-height: 1.2;
+}
+.profile-section-count {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+.profile-section-description {
+  margin: -6px 0 0;
+  max-width: 56ch;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+/* What is agreed but not built, said where it matters rather than in a file
+   nobody opens. */
+.profile-section-note {
+  margin: 0;
+  padding: 10px 14px;
+  border-left: 2px solid var(--line);
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.profile-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 15px;
+}
+.profile-list {
+  display: grid;
+  gap: 16px;
+}
+.profile-list .blog-comment {
+  padding: 20px 0;
+}
+.profile-list .blog-comment:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+/* Highlights */
+.profile-highlights,
+.profile-wishlist {
+  display: grid;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.profile-highlight {
+  display: grid;
+  gap: 8px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.profile-highlight-quote {
+  margin: 0;
+}
+.profile-highlight-quote p {
+  display: inline;
+  margin: 0;
+  padding: 2px 0;
+  background: rgba(154, 194, 255, 0.5);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: 17px;
+  line-height: 1.7;
+}
+.profile-highlight-meta {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.profile-highlight-meta a {
+  color: var(--ink-soft);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.profile-highlight-meta a:hover {
+  color: var(--accent-dark);
+}
+/* Wishlist */
+.profile-wish {
+  position: relative;
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.profile-wish.is-unavailable {
+  opacity: 0.68;
+}
+.profile-wish-cover {
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--surface);
+  aspect-ratio: 1;
+}
+.profile-wish-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.profile-wish-body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.profile-wish-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 0;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.profile-wish-price {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+.profile-wish-state {
+  color: var(--text-muted);
+}
+/* Account */
+.profile-account {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+.profile-account div {
+  display: grid;
+  gap: 2px;
+}
+.profile-account dt {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.profile-account dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 15px;
+}
+.profile-account-links {
+  margin: 4px 0 0;
+  font-size: 14px;
+}
+.profile-account-links a {
+  color: var(--ink-soft);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+@media (max-width: 640px) {
+  .profile-header {
+    flex-direction: column;
+  }
+  .profile-points {
+    max-width: none;
+  }
+  .profile-wish {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+}
+
 /* The way back from an archive scoped to a series to the series' own page. */
 .blog-archive-series-link {
   margin: -4px 0 0;

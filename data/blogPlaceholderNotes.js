@@ -6,13 +6,14 @@
  *
  *                        | note (private) | note (published) | comment
  *   post's public thread |       no       |       yes        |   yes
- *   author's profile     |      yes       |       yes        |   no
+ *   author's profile     |      yes       |       yes        |   yes
  *   margin of its block  |      yes       |       yes        |   no
  *   highlight's panel    |       no       |       no         |   yes
  *
- * That last row is the one that keeps them apart: the panel for a highlighted
- * fragment shows conversation about it, and a note is the reader's own reading,
- * not a reply to anyone. A note published into the thread is a contribution, not
+ * The highlight-panel row is the one that keeps them apart: the panel for a
+ * highlighted fragment shows conversation about it, and a note is the reader's
+ * own reading, not a reply to anyone. The profile carries both — it is the
+ * reader's own page and everything of theirs belongs on it. A note published into the thread is a contribution, not
  * a change of type — it stays a note everywhere else.
  *
  * `anchor` is the article fragment a note sits beside, stored as the quote
