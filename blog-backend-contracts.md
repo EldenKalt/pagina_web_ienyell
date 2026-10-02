@@ -132,6 +132,11 @@ GET /api/blog/:slug/comments?page=&limit=
 - Faltan por definir: crear, responder, dar like y reportar. La interfaz los tiene
   dibujados y bloqueados sin sesión.
 
+**Pendiente**: `GET /api/blog` tendrá que aceptar `?series=` además de `?topic=`
+y `?search=`. El archive ya los manda los tres cuando el flag de maqueta esté
+apagado; hoy filtra en cliente sobre la lista local. Como `seriesName` no es
+todavía una columna, eso depende de §3.
+
 **Pendiente**: el panel de un fragmento filtra hoy por texto exacto del
 `highlight` en el cliente. Debe filtrar por **id de anotación** en el servidor
 (`?anchor=`), que es lo que `BlogHighlightPanel` ya documenta.
@@ -238,7 +243,7 @@ updatedAt, stats, badge, href`.
 | `/blog/[slug]` | **Server Component**, ver §6 |
 | `/blog/series/[slug]` | Componente cliente, serie derivada de `seriesName` |
 | `/blog/archive?topic=` | Funciona. El archive lo lee con `useSearchParams` y lo enlazan los chips del rail y de la serie |
-| `/blog/archive?series=` | **No implementado y no enlazado desde ningún sitio.** Era la idea para filtrar el archive por serie; hoy la serie tiene su propia página |
+| `/blog/archive?series=` | Funciona. Compone con `?topic=` y con la búsqueda, y lo enlaza la página de serie como "Search within this series". **El parámetro ya se envía a `GET /api/blog`, que todavía no lo entiende** |
 | `/users/profile` | **No existe.** Lo enlazan el compositor de notas y el panel de notas |
 
 ---

@@ -80,6 +80,17 @@ export default function BlogSeriesPage() {
         <p className="blog-filter-summary">
           {series.posts.length} {series.posts.length === 1 ? 'post' : 'posts'}, in
           reading order
+          {/* This page is the series' front door and lists it in reading order.
+              A reader who wants to search inside the series, or page through it,
+              wants the archive scoped to it. */}
+          {series.posts.length > 1 ? (
+            <>
+              {' · '}
+              <Link href={`/blog/archive?series=${encodeURIComponent(series.name)}`}>
+                Search within this series
+              </Link>
+            </>
+          ) : null}
         </p>
 
         <BlogPostGrid

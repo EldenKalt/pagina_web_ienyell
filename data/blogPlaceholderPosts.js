@@ -597,6 +597,22 @@ const PLACEHOLDER_SERIES = [
   null, // not every post belongs to a series — the row must disappear cleanly
 ];
 
+/**
+ * The series a post belongs to, without building the whole detail shape.
+ *
+ * withPostDetailFields derives seriesName from the id and nothing else, but it
+ * also attaches the author's bio, socials and the invented stats — none of which
+ * a list card needs. The archive filters by series over the plain list, so it
+ * gets the one field it is asking about.
+ *
+ * PLACEHOLDER, like seriesName itself: when the schema grows a real series
+ * relation this reads the relation and the callers do not change.
+ */
+export function getPostSeries(post) {
+  if (!post || typeof post.id !== 'number') return '';
+  return PLACEHOLDER_SERIES[post.id % PLACEHOLDER_SERIES.length];
+}
+
 function withPostDetailFields(post) {
   const n = post.id;
 
