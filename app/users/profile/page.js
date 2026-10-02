@@ -192,7 +192,7 @@ export default function UserProfilePage() {
         count={comments.length}
         countLabel={comments.length === 1 ? 'comment' : 'comments'}
         description="What you said, and the conversations that came out of it."
-        note="Replies, reaction notifications and muting a conversation are agreed but not built."
+        note="Reaction notifications and muting a conversation are agreed but not built."
       >
         <div className="profile-list">
           {comments.map((comment) => (

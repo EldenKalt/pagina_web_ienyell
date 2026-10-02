@@ -1,11 +1,14 @@
 'use client';
 
+import { useCallback, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { formatBlogDate } from '../../lib/publishing';
 import { placeholderAttrs } from '../../lib/placeholder';
+import { fetchReplies } from '../../lib/comments';
 import BlogIcon from './BlogIcon';
 import BlogMenu from './BlogMenu';
+import BlogCommentComposer from './BlogCommentComposer';
 
 /**
  * One comment in the thread.
@@ -19,9 +22,34 @@ import BlogMenu from './BlogMenu';
  * control on this page, and nothing a reader does here is stored — there is no
  * comments endpoint yet.
  */
-export default function BlogComment({ comment, onOpenHighlight }) {
+export default function BlogComment({ comment, onOpenHighlight, isReply = false }) {
   const { user, isLoading } = useAuth();
   const router = useRouter();
+  const [replies, setReplies] = useState(null);
+  const [loadingReplies, setLoadingReplies] = useState(false);
+  const [replyError, setReplyError] = useState('');
+  const [composing, setComposing] = useState(false);
+
+  const openThread = useCallback(async () => {
+    // aria-disabled is advisory and does not stop a click, so the guard has to
+    // be here as well: a comment with no replies announced "No replies yet" and
+    // then opened an empty thread anyway.
+    if (!comment?.replies) return;
+    if (replies) {
+      setReplies(null);
+      return;
+    }
+    setLoadingReplies(true);
+    setReplyError('');
+    try {
+      const data = await fetchReplies(comment.id);
+      setReplies(data.replies);
+    } catch (error) {
+      setReplyError(error.message || 'The replies could not be loaded.');
+    } finally {
+      setLoadingReplies(false);
+    }
+  }, [comment?.id, replies]);
 
   if (!comment) return null;
 
@@ -43,7 +71,7 @@ export default function BlogComment({ comment, onOpenHighlight }) {
   });
 
   return (
-    <article className="blog-comment">
+    <article className={`blog-comment${isReply ? ' blog-comment--reply' : ''}`}>
       <header className="blog-comment-head">
         {author.avatarUrl ? (
           <img className="blog-comment-avatar" src={author.avatarUrl} alt="" loading="lazy" />
@@ -112,6 +140,15 @@ export default function BlogComment({ comment, onOpenHighlight }) {
       ) : null}
       {/* (Dynamic content: the article fragment this comment is anchored to) */}
 
+      {/* A reply to another reply is flattened to this same level, so the name
+          of the person being answered is what carries the structure that the
+          indentation would have. */}
+      {comment.toName ? (
+        <p className="blog-comment-to">
+          Replying to <strong>{comment.toName}</strong>
+        </p>
+      ) : null}
+
       <p className="blog-comment-body">{comment.body}</p>
 
       <div className="blog-comment-actions">
@@ -120,15 +157,77 @@ export default function BlogComment({ comment, onOpenHighlight }) {
           <span {...placeholderAttrs('comment.likes')}>{comment.likes ?? 0}</span>
         </button>
 
-        <button className="blog-comment-action" {...control(`Read ${comment.replies ?? 0} replies`)}>
+        {/* Reading a thread needs no session, like reading the post does not.
+            A reply carries no thread of its own — one level, by design. */}
+        <button
+          type="button"
+          className="blog-comment-action"
+          onClick={isReply ? undefined : openThread}
+          aria-expanded={isReply ? undefined : Boolean(replies)}
+          aria-disabled={isReply || !comment.replies ? true : undefined}
+          aria-label={
+            comment.replies
+              ? `${replies ? 'Hide' : 'Read'} ${comment.replies} replies`
+              : 'No replies yet'
+          }
+        >
           <BlogIcon name="chat" size={24} />
           <span {...placeholderAttrs('comment.replies')}>{comment.replies ?? 0}</span>
         </button>
 
-        <button className="blog-comment-reply" {...control(`Reply to ${author.name || 'this comment'}`)}>
+        <button
+          className="blog-comment-reply"
+          type="button"
+          aria-disabled={locked || undefined}
+          aria-expanded={composing}
+          aria-label={`Reply to ${author.name || 'this comment'}`}
+          title={locked ? 'Sign in to use this' : undefined}
+          onClick={() => {
+            if (locked) {
+              router.push('/users/login');
+              return;
+            }
+            setComposing((value) => !value);
+          }}
+        >
           Reply
         </button>
       </div>
+
+      {composing ? (
+        <div className="blog-comment-composer-inline">
+          {/* The same composer the thread and the off-canvas use. NOT
+              PERSISTED — there is no endpoint for a reply any more than for a
+              comment. */}
+          <BlogCommentComposer
+            placeholder={`Reply to ${author.name || 'this comment'}…`}
+          />
+        </div>
+      ) : null}
+
+      {replyError ? (
+        <p className="blog-public-error" role="alert">
+          {replyError}
+        </p>
+      ) : null}
+
+      {loadingReplies ? (
+        <p className="blog-comment-thread-loading" role="status" aria-live="polite">
+          Loading replies…
+        </p>
+      ) : null}
+
+      {replies ? (
+        <div className="blog-comment-thread">
+          {replies.length ? (
+            replies.map((reply) => <BlogComment key={reply.id} comment={reply} isReply />)
+          ) : (
+            // The count can be larger than what the thread actually holds. What
+            // is shown is what there is, not what the counter claimed.
+            <p className="blog-comment-thread-empty">No replies to show yet.</p>
+          )}
+        </div>
+      ) : null}
     </article>
   );
 }

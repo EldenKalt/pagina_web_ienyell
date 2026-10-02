@@ -242,6 +242,12 @@ antes que eso dos decisiones:
 - **Si el lector puede ocultarlo.** Es la sección más expuesta del perfil
   público, y la que más probablemente alguien quiera apagar.
 
+**Perfiles públicos de otras personas, decidido y sin construir.** La URL usará
+un **handle elegido por la persona** (`/users/lector`), no el id numérico, que
+expondría cuántas cuentas hay y cómo de nueva es cada una. `model User` no tiene
+ese campo: hace falta una columna única, validación de formato, y decidir si se
+puede cambiar y qué pasa con la URL anterior si se cambia.
+
 **Lo que el perfil NO es**: no hay mensajería privada ni amigos. Otras personas
 ven qué ha leído alguien, sus comentarios y sus notas públicas, y nada más. Los
 lectores no suben contenido ni publican nada.

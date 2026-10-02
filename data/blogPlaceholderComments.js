@@ -145,6 +145,72 @@ export function getFeaturedComments(limit = 3) {
 }
 
 /** Newest first, the order a comment list is normally read in. */
+/**
+ * Replies, keyed by the comment they answer.
+ *
+ * ONE LEVEL, DELIBERATELY. A reply to a reply still belongs to the top-level
+ * comment: the reading column is 680px and every further level of indentation
+ * eats into it, so a thread that nests without limit ends up a column of single
+ * words. The person being answered is named in the reply instead, which is what
+ * carries the structure that the indentation would have.
+ *
+ * Seeded against the counts already on the comments above, so the "3 replies" a
+ * comment advertises is the number that actually arrives.
+ *
+ * Edge cases: a reply that answers another reply (flattened, with `toName`), a
+ * long one, and a comment whose count is larger than the replies seeded here —
+ * the UI must not promise more than it can show.
+ */
+export const BLOG_PLACEHOLDER_REPLIES = {
+  1: [
+    {
+      id: 101,
+      parentId: 1,
+      author: { name: 'Consectetur Adipiscing', pronouns: 'he/him', avatarUrl: READER_AVATAR },
+      publishedAt: '2026-09-20T10:05:00.000Z',
+      body: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit sed do eiusmod tempor.',
+      likes: 4,
+    },
+    {
+      id: 102,
+      parentId: 1,
+      toName: 'Consectetur Adipiscing',
+      // EDGE CASE: answers another reply. Flattened to the same level, with the
+      // name carrying what the indentation would have.
+      author: { name: 'Lorem Ipsum', pronouns: 'she/her', avatarUrl: READER_AVATAR },
+      publishedAt: '2026-09-20T11:20:00.000Z',
+      body: 'Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum.',
+      // EDGE CASE: long reply
+      likes: 11,
+    },
+    {
+      id: 103,
+      parentId: 1,
+      author: { name: 'Tempor Incididunt', pronouns: 'they/them', avatarUrl: READER_AVATAR },
+      publishedAt: '2026-09-21T08:00:00.000Z',
+      body: 'Sed do eiusmod.',
+      likes: 0,
+    },
+  ],
+  3: [
+    {
+      id: 301,
+      parentId: 3,
+      author: { name: 'Magna Aliqua', pronouns: 'she/her', avatarUrl: READER_AVATAR },
+      publishedAt: '2026-09-18T12:00:00.000Z',
+      body: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit.',
+      likes: 2,
+    },
+  ],
+  // EDGE CASE: comment 3 advertises 12 replies and only one is seeded. What the
+  // thread shows is what it has, not what the counter claims.
+};
+
+/** The replies to one comment, newest last — a thread reads in order. */
+export function getPlaceholderReplies(commentId) {
+  return (BLOG_PLACEHOLDER_REPLIES[commentId] || []).map((reply) => ({ ...reply }));
+}
+
 export function getPlaceholderComments() {
   return [...BLOG_PLACEHOLDER_COMMENTS].sort(
     (a, b) => new Date(b.publishedAt) - new Date(a.publishedAt),
