@@ -1,40 +1,61 @@
 'use client';
 
-import { useCallback, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useBlogSignIn } from './BlogSignInPrompt';
 import { useAuth } from '../../context/AuthContext';
 import { formatBlogDate } from '../../lib/publishing';
 import { placeholderAttrs } from '../../lib/placeholder';
 import { fetchReplies } from '../../lib/comments';
+import { reactionError, setCommentLike } from '../../lib/reactions';
 import BlogIcon from './BlogIcon';
-import BlogMenu from './BlogMenu';
 import BlogCommentComposer from './BlogCommentComposer';
 
 /**
  * One comment in the thread.
  *
  * A comment anchored to a highlight quotes the fragment above its body, which is
- * how a reader scrolling the list can tell what it is answering. The quote uses
- * the same highlight colour the article will use once the annotation layer
- * renders inline marks.
- *
- * NOT PERSISTED. Liking and replying are gated behind a session like every other
- * control on this page, and nothing a reader does here is stored — there is no
- * comments endpoint yet.
+ * how a reader scrolling the list can tell what it is answering.
  */
-export default function BlogComment({ comment, onOpenHighlight, isReply = false }) {
+export default function BlogComment({ comment, onOpenHighlight, onCreated, isReply = false, reactable = true }) {
   const { user, isLoading } = useAuth();
-  const router = useRouter();
+  const requestSignIn = useBlogSignIn();
   const [replies, setReplies] = useState(null);
   const [loadingReplies, setLoadingReplies] = useState(false);
   const [replyError, setReplyError] = useState('');
   const [composing, setComposing] = useState(false);
+  const [likes, setLikes] = useState(comment?.likes || 0);
+  const [liked, setLiked] = useState(Boolean(comment?.liked));
+  const [likeBusy, setLikeBusy] = useState(false);
+  const [likeError, setLikeError] = useState('');
+  const readerRef = useRef({ userId: user?.id, commentId: comment?.id });
+  readerRef.current = { userId: user?.id, commentId: comment?.id };
+  useEffect(() => { setLikes(comment?.likes || 0); setLiked(Boolean(comment?.liked)); setLikeError(''); }, [comment?.id, comment?.likes, comment?.liked, user?.id]);
+
+  const toggleLike = async () => {
+    if (!reactable) return;
+    if (locked) { requestSignIn('like this comment'); return; }
+    if (likeBusy) return;
+    const identity = { userId: user?.id, commentId: comment.id };
+    setLikeBusy(true); setLikeError('');
+    try {
+      const result = await setCommentLike(comment.id, !liked);
+      if (readerRef.current.userId === identity.userId && readerRef.current.commentId === identity.commentId) {
+        setLikes(result.likes); setLiked(result.liked);
+      }
+    } catch (error) {
+      if (readerRef.current.userId === identity.userId && readerRef.current.commentId === identity.commentId) {
+        setLikeError(reactionError(error));
+        if (error.status === 401) requestSignIn('like this comment');
+      }
+    }
+    finally { setLikeBusy(false); }
+  };
 
   const openThread = useCallback(async () => {
     // aria-disabled is advisory and does not stop a click, so the guard has to
     // be here as well: a comment with no replies announced "No replies yet" and
     // then opened an empty thread anyway.
-    if (!comment?.replies) return;
+    if (!comment?.replies || !reactable) return;
     if (replies) {
       setReplies(null);
       return;
@@ -49,26 +70,12 @@ export default function BlogComment({ comment, onOpenHighlight, isReply = false 
     } finally {
       setLoadingReplies(false);
     }
-  }, [comment?.id, replies]);
+  }, [comment?.id, reactable, replies]);
 
   if (!comment) return null;
 
   const locked = !isLoading && !user;
   const author = comment.author || {};
-
-  const act = (event) => {
-    if (!locked) return;
-    event.preventDefault();
-    router.push('/users/login');
-  };
-
-  const control = (label) => ({
-    type: 'button',
-    onClick: act,
-    'aria-disabled': locked || undefined,
-    'aria-label': label,
-    title: locked ? 'Sign in to use this' : undefined,
-  });
 
   return (
     <article className={`blog-comment${isReply ? ' blog-comment--reply' : ''}`}>
@@ -99,34 +106,16 @@ export default function BlogComment({ comment, onOpenHighlight, isReply = false 
           ) : null}
         </div>
 
-        {/* Reporting needs a session like every other action here, so signed out
-            the item is announced as disabled and sends the reader to log in.
-            NOT PERSISTED: there is no moderation endpoint. */}
-        <BlogMenu
-          label={`More options for ${author.name || 'this comment'}`}
-          className="blog-comment-more"
-          items={[
-            {
-              id: 'report',
-              label: 'Report this comment',
-              danger: true,
-              disabled: locked,
-              onSelect: () => {
-                if (locked) router.push('/users/login');
-              },
-            },
-          ]}
-        />
       </header>
 
       {comment.highlight ? (
         // Clickable when the surface can show the fragment's own panel; plain
         // quoted text when it cannot, rather than a control that leads nowhere.
-        onOpenHighlight ? (
+        onOpenHighlight && comment.paragraphStatus === 'current' ? (
           <button
             type="button"
             className="blog-comment-highlight blog-comment-highlight--button"
-            onClick={() => onOpenHighlight(comment.highlight)}
+            onClick={() => onOpenHighlight(comment)}
             aria-haspopup="dialog"
             aria-label="Read the reactions to this fragment"
           >
@@ -150,20 +139,23 @@ export default function BlogComment({ comment, onOpenHighlight, isReply = false 
       ) : null}
 
       <p className="blog-comment-body">{comment.body}</p>
+      {!isReply && (comment.paragraphStatus === 'previous-version' || comment.paragraphStatus === 'unassigned') && <details className="blog-note-previous-version">
+        <summary>{comment.paragraphStatus === 'unassigned' ? 'Conversation without a current paragraph' : 'This conversation refers to an earlier version'}</summary>
+        <p>{comment.paragraphSnapshot || comment.highlight || 'The original paragraph is no longer in this article.'}</p>
+      </details>}
 
       <div className="blog-comment-actions">
-        {/* Nothing stores a reaction yet, so it says so rather than appearing to
-            work. See BlogPostActions. */}
         <button
           type="button"
-          className="blog-comment-action is-unwired"
-          onClick={(event) => event.preventDefault()}
-          aria-disabled="true"
-          title="Reactions are not stored yet"
-          aria-label={`Like this comment, ${comment.likes ?? 0} so far — not available yet`}
+          className={`blog-comment-action${liked ? ' is-active' : ''}${reactable ? '' : ' is-unwired'}`}
+          onClick={toggleLike}
+          disabled={!reactable || isLoading || likeBusy}
+          aria-disabled={!reactable || undefined}
+          aria-pressed={locked ? undefined : liked}
+          aria-label={reactable ? `${liked ? 'Unlike' : 'Like'} this comment, ${likes} so far` : 'Reactions are unavailable in this profile preview'}
         >
           <BlogIcon name="favorite" size={24} />
-          <span {...placeholderAttrs('comment.likes')}>{comment.likes ?? 0}</span>
+          <span>{likes}</span>
         </button>
 
         {/* Reading a thread needs no session, like reading the post does not.
@@ -171,9 +163,10 @@ export default function BlogComment({ comment, onOpenHighlight, isReply = false 
         <button
           type="button"
           className="blog-comment-action"
+          disabled={!reactable || isReply || !comment.replies}
           onClick={isReply ? undefined : openThread}
           aria-expanded={isReply ? undefined : Boolean(replies)}
-          aria-disabled={isReply || !comment.replies ? true : undefined}
+          aria-disabled={isReply || !comment.replies || !reactable ? true : undefined}
           aria-label={
             comment.replies
               ? `${replies ? 'Hide' : 'Read'} ${comment.replies} replies`
@@ -181,19 +174,21 @@ export default function BlogComment({ comment, onOpenHighlight, isReply = false 
           }
         >
           <BlogIcon name="chat" size={24} />
-          <span {...placeholderAttrs('comment.replies')}>{comment.replies ?? 0}</span>
+          <span {...(!reactable ? placeholderAttrs('comment.replies') : {})}>{comment.replies ?? 0}</span>
         </button>
 
         <button
           className="blog-comment-reply"
           type="button"
-          aria-disabled={locked || undefined}
+          disabled={!reactable}
+          aria-disabled={locked || !reactable || undefined}
           aria-expanded={composing}
           aria-label={`Reply to ${author.name || 'this comment'}`}
           title={locked ? 'Sign in to use this' : undefined}
           onClick={() => {
+            if (!reactable) return;
             if (locked) {
-              router.push('/users/login');
+              requestSignIn();
               return;
             }
             setComposing((value) => !value);
@@ -203,12 +198,18 @@ export default function BlogComment({ comment, onOpenHighlight, isReply = false 
         </button>
       </div>
 
+      {likeError && <p className="blog-public-error" role="alert">{likeError}</p>}
+
       {composing ? (
         <div className="blog-comment-composer-inline">
-          {/* The same composer the thread and the off-canvas use. NOT
-              PERSISTED — there is no endpoint for a reply any more than for a
-              comment. */}
+          {/* The same composer the thread and the off-canvas use. */}
           <BlogCommentComposer
+            parentId={comment.id}
+            onCreated={(created) => {
+              if (!isReply) setReplies((current) => current ? [...current, created] : [created]);
+              setComposing(false);
+              onCreated?.(created);
+            }}
             placeholder={`Reply to ${author.name || 'this comment'}…`}
           />
         </div>
@@ -229,7 +230,10 @@ export default function BlogComment({ comment, onOpenHighlight, isReply = false 
       {replies ? (
         <div className="blog-comment-thread">
           {replies.length ? (
-            replies.map((reply) => <BlogComment key={reply.id} comment={reply} isReply />)
+            replies.map((reply) => <BlogComment key={reply.id} comment={reply} isReply reactable={reactable} onCreated={(created) => {
+              setReplies((current) => [...current, created]);
+              onCreated?.(created);
+            }} />)
           ) : (
             // The count can be larger than what the thread actually holds. What
             // is shown is what there is, not what the counter claimed.

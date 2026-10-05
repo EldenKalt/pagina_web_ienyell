@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useRouter } from 'next/navigation';
+import { useBlogSignIn } from './BlogSignInPrompt';
 import { useAuth } from '../../context/AuthContext';
 import { indexText, selectorFromRange } from '../../lib/annotations';
 import BlogIcon from './BlogIcon';
@@ -45,7 +45,7 @@ export default function BlogSelectionToolbar({
   onNote,
 }) {
   const { user, isLoading } = useAuth();
-  const router = useRouter();
+  const requestSignIn = useBlogSignIn();
   const [state, setState] = useState(null); // { selector, text, top, left, flipped }
   const [copied, setCopied] = useState(false);
   const barRef = useRef(null);
@@ -104,6 +104,7 @@ export default function BlogSelectionToolbar({
       setState({
         selector,
         text,
+        paragraphId: range.startContainer.parentElement?.closest('p[data-paragraph-id]')?.getAttribute('data-paragraph-id') || null,
         rect: { top: rect.top, bottom: rect.bottom, left: rect.left, width: rect.width },
       });
     };
@@ -153,7 +154,7 @@ export default function BlogSelectionToolbar({
 
   const run = (action, gated) => () => {
     if (gated && locked) {
-      router.push('/users/login');
+      requestSignIn();
       return;
     }
     action();
@@ -202,7 +203,7 @@ export default function BlogSelectionToolbar({
       // mousedown elsewhere would collapse it before the click lands.
       onMouseDown={(event) => event.preventDefault()}
     >
-      <button
+      {onHighlight && <button
         type="button"
         className="blog-selection-action"
         onClick={run(() => onHighlight?.(state.selector, state.text), true)}
@@ -210,20 +211,20 @@ export default function BlogSelectionToolbar({
       >
         <BlogIcon name="highlight" size={20} />
         <span>Highlight</span>
-      </button>
+      </button>}
 
-      <button
+      {onComment && <button
         type="button"
         className="blog-selection-action"
-        onClick={run(() => onComment?.(state.selector, state.text), true)}
+        onClick={run(() => onComment?.(state.selector, state.text, state.paragraphId), true)}
         aria-disabled={locked || undefined}
         aria-haspopup="dialog"
       >
         <BlogIcon name="chat" size={20} />
         <span>Comment</span>
-      </button>
+      </button>}
 
-      <button
+      {onNote && <button
         type="button"
         className="blog-selection-action"
         onClick={run(() => onNote?.(state.selector, state.text), true)}
@@ -232,7 +233,7 @@ export default function BlogSelectionToolbar({
       >
         <BlogIcon name="note" size={20} />
         <span>Note</span>
-      </button>
+      </button>}
 
       <span className="blog-selection-divider" aria-hidden="true" />
 

@@ -39,7 +39,9 @@ export default function BlogPostSequenceNav({ sequence, previousPost, nextPost }
       {sequence ? (
         <Link
           className="blog-post-seq-count"
-          href="/blog/archive"
+          href={isSeries && sequence.seriesName
+            ? `/blog/archive?series=${encodeURIComponent(sequence.seriesName)}`
+            : '/blog/archive'}
           aria-label={
             isSeries
               ? `Post ${sequence.position} of ${sequence.total} on this series. See all posts`

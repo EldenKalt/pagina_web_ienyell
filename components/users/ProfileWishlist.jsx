@@ -15,7 +15,7 @@ import BlogIcon from '../blog/BlogIcon';
  * PRIVATE. This section is never part of the public view — what someone wants to
  * buy is nobody else's business.
  */
-export default function ProfileWishlist({ items = [] }) {
+export default function ProfileWishlist({ items = [], onRemove, busyId }) {
   if (!items.length) return null;
 
   return (
@@ -38,12 +38,15 @@ export default function ProfileWishlist({ items = [] }) {
               {/* (Dynamic content: product.title) */}
 
               <p className="profile-wish-price">
-                {item.price}
+                ₡{new Intl.NumberFormat('es-CR').format(Number(item.price))}
                 {/* (Dynamic metadata: product.price) */}
                 {item.available ? null : (
                   <span className="profile-wish-state"> · Not available right now</span>
                 )}
               </p>
+              {onRemove && <button type="button" disabled={busyId === item.id} onClick={() => onRemove(item.id)}>
+                {busyId === item.id ? 'Removing…' : 'Remove from wishlist'}
+              </button>}
             </div>
 
             {item.available && item.href && item.href !== '#' ? (

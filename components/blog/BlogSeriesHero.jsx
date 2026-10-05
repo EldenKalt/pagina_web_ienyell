@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useBlogSignIn } from './BlogSignInPrompt';
 import { useAuth } from '../../context/AuthContext';
 import SidePanel from '../SidePanel';
 import NewsletterForm from './NewsletterForm';
@@ -29,7 +29,7 @@ import BlogIcon from './BlogIcon';
  */
 export default function BlogSeriesHero({ series }) {
   const { user, isLoading } = useAuth();
-  const router = useRouter();
+  const requestSignIn = useBlogSignIn();
   const [newsletterOpen, setNewsletterOpen] = useState(false);
   const [following, setFollowing] = useState(false);
 
@@ -39,7 +39,7 @@ export default function BlogSeriesHero({ series }) {
 
   const toggleFollow = () => {
     if (locked) {
-      router.push('/users/login');
+      requestSignIn();
       return;
     }
     setFollowing((value) => !value);

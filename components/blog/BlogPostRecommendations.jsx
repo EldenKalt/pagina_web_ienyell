@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import { formatBlogDate } from '../../lib/publishing';
-import { placeholderAttrs } from '../../lib/placeholder';
 import BlogIcon from './BlogIcon';
 
 /**
@@ -11,8 +10,7 @@ import BlogIcon from './BlogIcon';
  * a single component with a `variant`; the grid arrives with the page footer
  * section and needs only its own class, not another component.
  *
- * The counts are the same placeholder stats the action bar shows and are not
- * persisted — see BlogPostActions.
+ * Article recommendations receive current counts with the public post response.
  */
 
 function Card({ post, variant }) {
@@ -86,17 +84,17 @@ function Card({ post, variant }) {
         <ul className="blog-rec-stats">
           <li>
             <BlogIcon name="favorite" size={16} />
-            <span {...placeholderAttrs('post.stats.likes')}>{stats.likes ?? 0}</span>
+            <span>{stats.likes ?? 0}</span>
             <span className="sr-only">likes</span>
           </li>
           <li>
             <BlogIcon name="chat" size={16} />
-            <span {...placeholderAttrs('post.stats.comments')}>{stats.comments ?? 0}</span>
+            <span>{stats.comments ?? 0}</span>
             <span className="sr-only">comments</span>
           </li>
           <li>
             <BlogIcon name="share" size={16} />
-            <span {...placeholderAttrs('post.stats.shares')}>{stats.shares ?? 0}</span>
+            <span>{stats.shares ?? 0}</span>
             <span className="sr-only">shares</span>
           </li>
         </ul>

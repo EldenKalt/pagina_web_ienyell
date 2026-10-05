@@ -28,6 +28,12 @@ export default function BlogPostHeader({
   onOpenComments,
   saved,
   onToggleSave,
+  saveBusy,
+  liked,
+  onToggleLike,
+  likeBusy,
+  onShare,
+  shareBusy,
   highlightsHidden,
   onToggleHighlights,
 }) {
@@ -79,13 +85,13 @@ export default function BlogPostHeader({
         </p>
 
         {/* A link, not a button: it navigates off-site. */}
-        <Link
+        {author.patreonUrl?.startsWith('https://') && <Link
           ref={patreonRef}
           className="blog-post-patreon"
-          href={author.patreonUrl || '#'}
+          href={author.patreonUrl}
         >
           Be my patreon
-        </Link>
+        </Link>}
 
         <p className="blog-post-byline-meta">
           {post?.readingTime ? <span>{post.readingTime} min read</span> : null}
@@ -106,6 +112,12 @@ export default function BlogPostHeader({
         onOpenComments={onOpenComments}
         saved={saved}
         onToggleSave={onToggleSave}
+        saveBusy={saveBusy}
+        liked={liked}
+        onToggleLike={onToggleLike}
+        likeBusy={likeBusy}
+        onShare={onShare}
+        shareBusy={shareBusy}
         highlightsHidden={highlightsHidden}
         onToggleHighlights={onToggleHighlights}
       />
