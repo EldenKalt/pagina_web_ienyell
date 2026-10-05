@@ -24,7 +24,7 @@
  *   - one whose quote is not in the article at all, which must orphan quietly
  */
 
-export const BLOG_USE_PLACEHOLDER_HIGHLIGHTS = true;
+export const BLOG_USE_PLACEHOLDER_HIGHLIGHTS = false;
 
 export const BLOG_PLACEHOLDER_HIGHLIGHTS = [
   {

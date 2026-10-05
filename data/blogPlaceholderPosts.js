@@ -17,14 +17,7 @@
  * unreachable.
  */
 
-/**
- * UI-phase flag. While true, the public blog pages read from this file instead of
- * fetching the API. Remove this flag and the `BLOG_PLACEHOLDER_POSTS` imports from
- * app/blog/page.js and app/blog/archive/page.js when the API is reconnected.
- */
 import { slugifyCmsValue } from '../lib/publishing';
-
-export const BLOG_USE_PLACEHOLDER_DATA = true;
 
 // TODO: `readingTime` is not a field on model BlogPost. It is a value derived from
 // `content`. Decide later whether to compute it client-side or add it to the schema.
