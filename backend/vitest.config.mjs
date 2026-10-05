@@ -5,6 +5,10 @@ export default defineConfig({
     environment: 'node',
     globals: true,
     clearMocks: true,
-    restoreMocks: true
+    restoreMocks: true,
+    env: {
+      DATABASE_URL: 'postgresql://invalid:invalid@127.0.0.1:1/invalid',
+      DIRECT_URL: 'postgresql://invalid:invalid@127.0.0.1:1/invalid'
+    }
   }
 });
