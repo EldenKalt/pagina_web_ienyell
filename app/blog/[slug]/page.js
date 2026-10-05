@@ -2,10 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import BlogPostView from '../../../components/blog/BlogPostView';
 import { sanitizeArticleHtml } from '../../../lib/articleHtml';
-import {
-  BLOG_USE_PLACEHOLDER_DATA,
-  getPlaceholderPostBySlug,
-} from '../../../data/blogPlaceholderPosts';
+import { fetchBlogApi } from '../../../lib/blogApi';
 
 /**
  * The post page, as a server component.
@@ -23,22 +20,17 @@ import {
  * lib/articleHtml.js, which also holds the contract for the day the content
  * stops being the author's own.
  *
- * TODO, with the same shape as app/blog/page.js: replace getPlaceholderPostBySlug
- * with the live read (GET /api/blog/:slug) and drop the BLOG_USE_PLACEHOLDER_DATA
- * branch. The fetch moves here, which means the session cookie has to be
- * forwarded for anything reader-specific; the article itself is public.
+ * Article content is public and sanitized by the backend when stored.
+ * Reader-specific features load separately inside BlogPostView.
  */
 
 async function readPost(slug) {
-  if (BLOG_USE_PLACEHOLDER_DATA) return getPlaceholderPostBySlug(slug) || null;
-
-  // Deliberately unimplemented rather than half-implemented: a server fetch
-  // needs its own cache policy and cookie forwarding, and guessing at those
-  // would be worse than the explicit failure.
-  throw new Error(
-    'The post page has no live read yet. Wire GET /api/blog/:slug here, or keep ' +
-      'BLOG_USE_PLACEHOLDER_DATA on.',
-  );
+  try {
+    return await fetchBlogApi(`/api/blog/${encodeURIComponent(slug)}`);
+  } catch (error) {
+    if (error.status === 404) return null;
+    throw error;
+  }
 }
 
 export async function generateMetadata({ params }) {
@@ -82,7 +74,7 @@ export default async function BlogPostPage({ params }) {
   // looks fine. The old client version could only render its own message.
   if (!post) notFound();
 
-  const safeHtml = sanitizeArticleHtml(post.content);
+  const safeHtml = sanitizeArticleHtml(post.content, { trusted: true });
 
   return (
     <main className="blog-post-page">

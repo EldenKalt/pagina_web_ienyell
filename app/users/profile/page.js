@@ -1,265 +1,144 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../context/AuthContext';
 import ProfileSection from '../../../components/users/ProfileSection';
-import ProfileWishlist from '../../../components/users/ProfileWishlist';
-import ProfileHighlights from '../../../components/users/ProfileHighlights';
-import BlogNote from '../../../components/blog/BlogNote';
-import BlogComment from '../../../components/blog/BlogComment';
+import ProfileActivity from '../../../components/users/ProfileActivity';
+import ProfileEditor from '../../../components/users/ProfileEditor';
+import ProfileWishlistManager from '../../../components/users/ProfileWishlistManager';
 import BlogPostGrid from '../../../components/blog/BlogPostGrid';
-import { getProfilePlaceholder } from '../../../data/profilePlaceholder';
-import { getPlaceholderNotes } from '../../../data/blogPlaceholderNotes';
-import { getPlaceholderComments } from '../../../data/blogPlaceholderComments';
-import { getPlaceholderPosts } from '../../../data/blogPlaceholderPosts';
-
-/**
- * The reader's profile.
- *
- * WHAT IT IS: closer to a Steam profile than to a social network. There is no
- * private messaging and there are no friends. Other people can see what someone
- * has read, their comments and their public notes. A reader may add their own
- * social links and may not upload, post or publish anything else.
- *
- * It is TIERED. This is the reader tier. Buying a course, requesting a service
- * or ordering a product unlocks further panels — downloads, shipping, invoicing.
- * Those are agreed later work and are not sketched here; neither are the
- * reader's courses, their exercise results or the teacher's comments on them.
- *
- * WHAT SOMEONE HAS READ is part of the public profile and is NOT built, because
- * nothing records it: "Read later" is what a reader kept, not what they read.
- * Two decisions come before the table — what counts as read, and whether a
- * reader can hide it. See blog-backend-contracts.md §4.4.
- *
- * THE PUBLIC PREVIEW is not decoration. The whole point of publishing a note is
- * that other people read it, so being able to check exactly what is exposed
- * before publishing more is the feature. It renders this same page with the
- * private sections removed, which is also the honest way to build it: there is
- * one definition of what is public, not two that can drift.
- *
- * NOTHING HERE PERSISTS. Notes and comments come from the blog's own placeholder
- * files, so the profile shows the same data the post page does; everything else
- * comes from data/profilePlaceholder.js. No endpoint exists for any of it — see
- * blog-backend-contracts.md.
- */
-
-/** What a visitor is allowed to see. One list, used to build the public view. */
-const PUBLIC_SECTIONS = ['notes', 'comments', 'highlights'];
+import usePagedProfile from '../../../hooks/usePagedProfile';
+import { getOwnProfile, profileError } from '../../../lib/readerProfile';
+import { fetchSavedPosts, savedError } from '../../../lib/savedBlog';
 
 export default function UserProfilePage() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
+  const readerRef = useRef(user?.id);
+  readerRef.current = user?.id;
   const [asPublic, setAsPublic] = useState(false);
+  const [profile, setProfile] = useState(null);
+  const [profileErrorMessage, setProfileErrorMessage] = useState('');
+  const [profileRevision, setProfileRevision] = useState(0);
+  const [wishlistRevision, setWishlistRevision] = useState(0);
+  const [savedPosts, setSavedPosts] = useState([]);
+  const [savedOwner, setSavedOwner] = useState(null);
+  const [savedPage, setSavedPage] = useState(0);
+  const [savedPages, setSavedPages] = useState(0);
+  const [savedTotal, setSavedTotal] = useState(0);
+  const [savedLoading, setSavedLoading] = useState(false);
+  const [savedListError, setSavedListError] = useState('');
+  const [savedRevision, setSavedRevision] = useState(0);
 
-  const profile = useMemo(() => getProfilePlaceholder(), []);
-  const notes = useMemo(() => getPlaceholderNotes(), []);
-  const comments = useMemo(() => getPlaceholderComments().slice(0, 4), []);
-  const savedPosts = useMemo(() => {
-    const byId = new Map(getPlaceholderPosts().map((post) => [post.id, post]));
-    return profile.savedIds.map((id) => byId.get(id)).filter(Boolean);
-  }, [profile.savedIds]);
+  const identity = user?.id || null;
+  const notes = usePagedProfile(identity ? asPublic ? '/api/reader-profiles/_self/notes' : '/api/users/me/notes' : null, 'notes', identity);
+  const comments = usePagedProfile(identity ? asPublic ? '/api/reader-profiles/_self/comments' : '/api/users/me/comments' : null, 'comments', identity);
+  const highlights = usePagedProfile(identity ? '/api/users/me/annotations' : null, 'highlights', identity);
+  const wishlist = usePagedProfile(identity ? '/api/users/me/wishlist' : null, 'items', identity, wishlistRevision);
 
-  // A profile is the one page on the site that cannot be read without a session.
   useEffect(() => {
     if (!isLoading && !user) router.replace('/users/login');
   }, [isLoading, user, router]);
+  useEffect(() => {
+    setProfile(null); setProfileErrorMessage('');
+    if (!identity) return undefined;
+    const controller = new AbortController();
+    getOwnProfile(controller.signal).then((result) => { if (!controller.signal.aborted) setProfile(result.profile); })
+      .catch((error) => { if (!controller.signal.aborted) setProfileErrorMessage(profileError(error)); });
+    return () => controller.abort();
+  }, [identity, profileRevision]);
+  useEffect(() => {
+    setSavedPosts([]); setSavedOwner(null); setSavedPage(0); setSavedPages(0); setSavedTotal(0); setSavedListError('');
+    if (!identity) return undefined;
+    const controller = new AbortController();
+    setSavedLoading(true);
+    fetchSavedPosts(1, controller.signal).then((result) => {
+      if (!controller.signal.aborted) {
+        setSavedPosts(result.posts); setSavedOwner(identity); setSavedPage(result.page);
+        setSavedPages(result.totalPages); setSavedTotal(result.total);
+      }
+    }).catch((error) => { if (!controller.signal.aborted) setSavedListError(savedError(error)); })
+      .finally(() => { if (!controller.signal.aborted) setSavedLoading(false); });
+    return () => controller.abort();
+  }, [identity, savedRevision]);
+  const loadMoreSaved = async () => {
+    if (savedLoading || savedOwner !== identity || savedPage >= savedPages) return;
+    const userId = identity;
+    setSavedLoading(true); setSavedListError('');
+    try {
+      const result = await fetchSavedPosts(savedPage + 1);
+      if (readerRef.current === userId) {
+        setSavedPosts((current) => [...current, ...result.posts]);
+        setSavedPage(result.page); setSavedPages(result.totalPages); setSavedTotal(result.total);
+      }
+    } catch (error) { if (readerRef.current === userId) setSavedListError(savedError(error)); }
+    finally { setSavedLoading(false); }
+  };
 
-  if (isLoading) {
-    return (
-      <main className="profile-page">
-        <div className="blog-loading" role="status" aria-live="polite">
-          <span className="blog-loading-spinner" />
-          Loading your profile…
+  if (isLoading) return <main className="profile-page"><div className="blog-loading" role="status">Loading your profile…</div></main>;
+  if (!user) return <main className="profile-page"><p className="profile-empty">Sign in to see your profile.</p></main>;
+
+  const currentProfile = profile?.id === identity ? profile : null;
+  const currentSavedPosts = savedOwner === identity ? savedPosts : [];
+  const socials = Array.isArray(currentProfile?.socialLinks) ? currentProfile.socialLinks : [];
+  return <main className="profile-page">
+    <header className="profile-header">
+      <div className="profile-identity">
+        <span className="profile-avatar profile-avatar--fallback" aria-hidden="true">{(currentProfile?.name || user.name || '?').trim().charAt(0)}</span>
+        <div>
+          <h1 className="profile-name">{currentProfile?.name || user.name || 'Reader'}</h1>
+          {currentProfile?.pronouns && <p className="profile-pronouns">{currentProfile.pronouns}</p>}
+          {currentProfile?.handle && <p>@{currentProfile.handle}</p>}
+          {socials.length > 0 && <ul className="profile-socials">{socials.map((social, index) => <li key={`${social.url}-${index}`}>
+            <a href={social.url} rel="me noreferrer" target="_blank">{social.label}</a>
+          </li>)}</ul>}
         </div>
-      </main>
-    );
-  }
-
-  if (!user) {
-    // The effect above is already navigating; this is what shows for the frame
-    // in between, rather than a flash of an empty profile.
-    return (
-      <main className="profile-page">
-        <p className="profile-empty">Sign in to see your profile.</p>
-      </main>
-    );
-  }
-
-  const visible = (section) => !asPublic || PUBLIC_SECTIONS.includes(section);
-  const publicNotes = notes.filter((note) => note.isPublic);
-  const shownNotes = asPublic ? publicNotes : notes;
-
-  return (
-    <main className="profile-page">
-      <header className="profile-header">
-        <div className="profile-identity">
-          {user.avatarUrl ? (
-            <img className="profile-avatar" src={user.avatarUrl} alt="" />
-          ) : (
-            <span className="profile-avatar profile-avatar--fallback" aria-hidden="true">
-              {(user.name || '?').trim().charAt(0)}
-            </span>
-          )}
-
-          <div>
-            <h1 className="profile-name">{user.name || 'Reader'}</h1>
-            {/* (Dynamic metadata: user.name) */}
-            {user.pronouns ? <p className="profile-pronouns">{user.pronouns}</p> : null}
-            {/* (Expected dynamic field: user.pronouns — not a column on model User) */}
-
-            {profile.socials.length ? (
-              <ul className="profile-socials">
-                {profile.socials.map((social) => (
-                  <li key={social.id}>
-                    <a href={social.url} rel="me noreferrer" target="_blank">
-                      {social.label}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            {/* The reader's own links — the only thing they publish about
-                themselves. (Expected dynamic field: user.socials[]) */}
-          </div>
-        </div>
-
-        {/* Points are earned for commenting, doing practices, sharing posts,
-            following on social and recommending the site, and redeem for
-            benefits only account holders get. THE RULES ARE NOT DECIDED, so the
-            total is shown and the ledger is marked as illustrative. */}
-        <div className="profile-points">
-          <p className="profile-points-total">
-            <strong>{profile.points.total.toLocaleString()}</strong> points
-          </p>
-          <p className="profile-points-hint">
-            Earned by reading, commenting and sharing. Spend them on things only
-            readers with an account can get.
-          </p>
-          {/* (Future content: the rewards catalogue, once the rules exist) */}
-        </div>
-      </header>
-
-      <div className="profile-viewswitch" role="group" aria-label="How to view this profile">
-        <button
-          type="button"
-          className={`profile-viewbtn${asPublic ? '' : ' is-active'}`}
-          onClick={() => setAsPublic(false)}
-          aria-pressed={!asPublic}
-        >
-          Your view
-        </button>
-        <button
-          type="button"
-          className={`profile-viewbtn${asPublic ? ' is-active' : ''}`}
-          onClick={() => setAsPublic(true)}
-          aria-pressed={asPublic}
-        >
-          What others see
-        </button>
       </div>
+    </header>
 
-      {asPublic ? (
-        <p className="profile-public-banner" role="status">
-          This is your profile as a visitor sees it. Your private notes, your
-          reading list, your wishlist and your account details are not here.
-        </p>
-      ) : null}
+    <div className="profile-viewswitch" role="group" aria-label="How to view this profile">
+      <button type="button" className={`profile-viewbtn${asPublic ? '' : ' is-active'}`} onClick={() => setAsPublic(false)} aria-pressed={!asPublic}>Your view</button>
+      <button type="button" className={`profile-viewbtn${asPublic ? ' is-active' : ''}`} onClick={() => setAsPublic(true)} aria-pressed={asPublic}>What others see</button>
+    </div>
+    {asPublic && <p className="profile-public-banner" role="status">This preview shows your public notes, comments and links. Your highlights, reading list, wishlist and account details stay private.</p>}
 
-      <ProfileSection
-        id="profile-notes"
-        title="My notes"
-        count={shownNotes.length}
-        countLabel={shownNotes.length === 1 ? 'note' : 'notes'}
-        description={
-          asPublic
-            ? 'Only the notes you published appear here.'
-            : 'Everything you wrote for yourself, published or not.'
-        }
-        empty={asPublic ? 'No published notes.' : 'You have not written any notes yet.'}
-      >
-        <div className="profile-list">
-          {shownNotes.map((note) => (
-            <BlogNote key={note.id} note={note} />
-          ))}
-        </div>
+    <ProfileActivity notes={notes} comments={comments} highlights={highlights} publicView={asPublic} />
+
+    {!asPublic && <>
+      <ProfileSection id="profile-saved" title="Read later"
+        count={savedOwner !== identity || savedLoading && savedPage === 0 || savedListError ? undefined : savedTotal}
+        countLabel={savedTotal === 1 ? 'post' : 'posts'} description="What you kept with the bookmark." empty="Nothing saved yet.">
+        {savedListError && <div role="alert" className="blog-public-error"><p>{savedListError}</p>
+          <button type="button" onClick={() => setSavedRevision((value) => value + 1)}>Try again</button></div>}
+        {savedLoading && !currentSavedPosts.length && <p role="status">Loading your reading list…</p>}
+        {currentSavedPosts.length > 0 && <BlogPostGrid posts={currentSavedPosts} layout="rows" headingLevel={3} showExcerpt />}
+        {savedOwner === identity && savedPage < savedPages && <button type="button" className="blog-comments-all" disabled={savedLoading} onClick={loadMoreSaved}>
+          {savedLoading ? 'Loading…' : 'Load more saved articles'}</button>}
       </ProfileSection>
 
-      <ProfileSection
-        id="profile-comments"
-        title="My comments"
-        count={comments.length}
-        countLabel={comments.length === 1 ? 'comment' : 'comments'}
-        description="What you said, and the conversations that came out of it."
-        note="Reaction notifications and muting a conversation are agreed but not built."
-      >
-        <div className="profile-list">
-          {comments.map((comment) => (
-            <BlogComment key={comment.id} comment={comment} />
-          ))}
-        </div>
+      <ProfileSection id="profile-wishlist" title="Wishlist" count={wishlist.total || undefined}
+        countLabel={wishlist.total === 1 ? 'item' : 'items'} description="Products you want to keep in mind.">
+        {wishlist.error && <div className="blog-public-error" role="alert"><p>{wishlist.error}</p><button type="button" onClick={wishlist.retry}>Try again</button></div>}
+        {wishlist.loading && !wishlist.rows.length && <p role="status">Loading wishlist…</p>}
+        {!wishlist.loading && !wishlist.rows.length && <p className="profile-empty">Nothing in your wishlist yet.</p>}
+        <ProfileWishlistManager key={identity} items={wishlist.rows} onChanged={() => {
+          if (readerRef.current === identity) setWishlistRevision((value) => value + 1);
+        }} />
+        {wishlist.page < wishlist.totalPages && <button type="button" className="blog-comments-all" disabled={wishlist.loading} onClick={wishlist.more}>Load more</button>}
       </ProfileSection>
 
-      <ProfileSection
-        id="profile-highlights"
-        title="My highlights"
-        count={profile.highlights.length}
-        countLabel={profile.highlights.length === 1 ? 'passage' : 'passages'}
-        description="Passages you marked. Each one links back to where it sits."
-      >
-        <ProfileHighlights highlights={profile.highlights} />
+      <ProfileSection id="profile-account" title="Account" description="Your details and your public profile settings.">
+        {profileErrorMessage && <div className="blog-public-error" role="alert"><p>{profileErrorMessage}</p>
+          <button type="button" onClick={() => setProfileRevision((value) => value + 1)}>Try again</button></div>}
+        <dl className="profile-account"><div><dt>Name</dt><dd>{currentProfile?.name || user.name || '—'}</dd></div>
+          <div><dt>Email</dt><dd>{currentProfile?.email || user.email || '—'}</dd></div></dl>
+        {currentProfile && <ProfileEditor key={identity} profile={currentProfile} onSaved={(updated) => {
+          if (readerRef.current === identity) setProfile(updated);
+        }} />}
+        <p className="profile-account-links"><Link href="/links">Contact me</Link></p>
       </ProfileSection>
-
-      {visible('saved') ? (
-        <ProfileSection
-          id="profile-saved"
-          title="Read later"
-          count={savedPosts.length}
-          countLabel={savedPosts.length === 1 ? 'post' : 'posts'}
-          description="What you kept with the bookmark."
-          note="What you have actually read is a separate, public section, and nothing records it yet."
-          empty="Nothing saved yet."
-        >
-          <BlogPostGrid posts={savedPosts} layout="rows" headingLevel={3} showExcerpt />
-        </ProfileSection>
-      ) : null}
-
-      {visible('wishlist') ? (
-        <ProfileSection
-          id="profile-wishlist"
-          title="Wishlist"
-          count={profile.wishlist.length}
-          countLabel={profile.wishlist.length === 1 ? 'item' : 'items'}
-          description="Things you want for later."
-          note="No wishlist table exists yet, and the product pages these would open do not either."
-        >
-          <ProfileWishlist items={profile.wishlist} />
-        </ProfileSection>
-      ) : null}
-
-      {visible('account') ? (
-        <ProfileSection
-          id="profile-account"
-          title="Account"
-          description="Your details, and the way out."
-        >
-          <dl className="profile-account">
-            <div>
-              <dt>Name</dt>
-              <dd>{user.name || '—'}</dd>
-            </div>
-            <div>
-              <dt>Email</dt>
-              <dd>{user.email || '—'}</dd>
-            </div>
-          </dl>
-
-          <p className="profile-account-links">
-            <Link href="/links">Contact me</Link>
-          </p>
-        </ProfileSection>
-      ) : null}
-    </main>
-  );
+    </>}
+  </main>;
 }
