@@ -1143,3 +1143,31 @@ model NewsletterSubscriber {
   createdAt                  DateTime  @default(now())
   updatedAt                  DateTime  @updatedAt
 }
+
+model CommissionRequest {
+  id             String    @id
+  status         String    @default("pending")
+  name           String
+  email          String
+  payload        Json
+  referenceFiles String[]  @default([])
+  receivedAt     DateTime  @default(now())
+  updatedAt      DateTime?
+
+  @@index([receivedAt])
+  @@index([status])
+}
+
+model WaitlistEntry {
+  id           String   @id
+  category     String   @default("")
+  name         String
+  email        String
+  terms        Boolean
+  newsletter   Boolean  @default(false)
+  reason       String   @default("")
+  registeredAt String
+  receivedAt   DateTime @default(now())
+
+  @@index([receivedAt])
+}
