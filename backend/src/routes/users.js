@@ -18,6 +18,16 @@ const {
 } = require("../controllers/userController");
 
 const router = express.Router();
+const readerProfile = require('../controllers/readerProfileController');
+router.get('/me/profile', authenticateToken, readerProfile.ownProfile);
+router.patch('/me/profile', authenticateToken, readerProfile.updateOwnProfile);
+router.get('/me/notes', authenticateToken, readerProfile.myNotes);
+router.get('/me/comments', authenticateToken, readerProfile.myComments);
+router.get('/me/annotations', authenticateToken, readerProfile.myHighlights);
+router.get('/me/wishlist', authenticateToken, readerProfile.myWishlist);
+router.get('/me/wishlist/search', authenticateToken, readerProfile.searchWishlistProducts);
+router.put('/me/wishlist/:productId', authenticateToken, readerProfile.addWishlistItem);
+router.delete('/me/wishlist/:productId', authenticateToken, readerProfile.removeWishlistItem);
 
 router.get("/profile", authenticateToken, getProfile);
 router.patch("/profile", authenticateToken, updateProfile);
