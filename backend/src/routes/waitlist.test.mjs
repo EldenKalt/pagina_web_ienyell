@@ -29,6 +29,7 @@ function createApp({ authorized = true, role = 'ADMIN' } = {}) {
 beforeEach(() => {
   rows = []; errors = [];
   prisma = { waitlistEntry: {
+    count: vi.fn(async () => rows.length),
     create: vi.fn(async ({ data }) => { const row = { ...data, receivedAt: new Date('2026-01-01T00:00:00Z') }; rows.push(row); return row; }),
     findMany: vi.fn(async () => [...rows].sort((a, b) => b.receivedAt - a.receivedAt)),
   } };
@@ -97,5 +98,82 @@ describe('waitlist in Postgres with an injected Prisma', () => {
     for (let i = 0; i < 5; i += 1) await request(app).post('/api/waitlist').send(valid()).expect(201);
     await request(app).post('/api/waitlist').send(valid()).expect(429);
     expect(prisma.waitlistEntry.create).toHaveBeenCalledTimes(5);
+  });
+});
+
+describe('waitlist optional pagination', () => {
+  beforeEach(() => {
+    rows = [{ id: 'WL-ABC123', category: 'Art', name: 'Synthetic Reader', email: 'reader@example.com',
+      terms: true, newsletter: false, reason: 'Synthetic reason', registeredAt: '2026-01-01',
+      receivedAt: new Date('2026-01-01T00:00:00Z') }];
+  });
+  it('WP1 returns the paged contract and shares the same where object', async () => {
+    rows.push({ ...rows[0], id: 'WL-DEF456', name: 'Synthetic Second Reader' });
+    prisma.waitlistEntry.findMany.mockResolvedValueOnce([rows[1]]);
+    const result = await request(app).get('/api/waitlist?page=2&pageSize=1').expect(200);
+    expect(Object.keys(result.body).sort()).toEqual(['waitlist', 'total', 'page', 'pageSize', 'totalPages'].sort());
+    expect(result.body).toEqual({ waitlist: [{ ...rows[1], receivedAt: '2026-01-01T00:00:00.000Z' }],
+      total: 2, page: 2, pageSize: 1, totalPages: 2 });
+    expect(prisma.waitlistEntry.count).toHaveBeenCalledExactlyOnceWith({ where: {} });
+    expect(prisma.waitlistEntry.findMany).toHaveBeenCalledExactlyOnceWith({
+      where: {}, orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }], skip: 1, take: 1,
+    });
+    expect(prisma.waitlistEntry.count.mock.calls[0][0].where).toBe(prisma.waitlistEntry.findMany.mock.calls[0][0].where);
+  });
+  it.each([['500', 100], ['abc', 20]])('WP2 normalizes pageSize=%s', async (value, take) => {
+    const result = await request(app).get(`/api/waitlist?pageSize=${value}`).expect(200);
+    expect(prisma.waitlistEntry.findMany.mock.calls[0][0].take).toBe(take);
+    expect(result.body.pageSize).toBe(take);
+    expect(result.body.page).toBe(1);
+  });
+  it('WP3 searches name, email and category case-insensitively', async () => {
+    await request(app).get('/api/waitlist?q=Artist').expect(200);
+    const where = { OR: ['name', 'email', 'category'].map((field) => ({ [field]: { contains: 'Artist', mode: 'insensitive' } })) };
+    expect(prisma.waitlistEntry.count).toHaveBeenCalledWith({ where });
+    expect(prisma.waitlistEntry.findMany.mock.calls[0][0].where).toEqual(where);
+    expect(prisma.waitlistEntry.count.mock.calls[0][0].where).toBe(prisma.waitlistEntry.findMany.mock.calls[0][0].where);
+  });
+  it.each([[{ authorized: false }, 401], [{ role: 'CLIENT' }, 403]])('WP4 authenticates before querying %j', async (auth, status) => {
+    await request(createApp(auth)).get('/api/waitlist?page=1').expect(status);
+    for (const method of Object.values(prisma.waitlistEntry)) expect(method).not.toHaveBeenCalled();
+  });
+  it('WP5 wraps count errors without exposing their original message', async () => {
+    prisma.waitlistEntry.count.mockRejectedValueOnce(new Error('SYNTH_SECRET_ARG'));
+    const result = await request(app).get('/api/waitlist?page=1').expect(500);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toBe('Waitlist storage error');
+    expect(JSON.stringify(result.body)).not.toContain('SYNTH_SECRET_ARG');
+  });
+  it('WP6 sets no-store only for paged responses', async () => {
+    const paged = await request(app).get('/api/waitlist?page=2&pageSize=1').expect(200);
+    const legacy = await request(app).get('/api/waitlist').expect(200);
+    expect(paged.headers['cache-control']).toBe('no-store');
+    expect(legacy.headers['cache-control']).toBeUndefined();
+    expect(Array.isArray(legacy.body)).toBe(true);
+    expect(prisma.waitlistEntry.count).toHaveBeenCalledTimes(1);
+  });
+  it('WP7 ignores an array search while selecting paged mode', async () => {
+    await request(app).get('/api/waitlist?q=a&q=b').expect(200);
+    expect(prisma.waitlistEntry.count).toHaveBeenCalledWith({ where: {} });
+    expect(prisma.waitlistEntry.findMany.mock.calls[0][0].where).not.toHaveProperty('OR');
+  });
+  it('WP8 preserves legacy mode when only status is present', async () => {
+    const result = await request(app).get('/api/waitlist?status=bogus').expect(200);
+    expect(Array.isArray(result.body)).toBe(true);
+    expect(prisma.waitlistEntry.count).not.toHaveBeenCalled();
+    expect(prisma.waitlistEntry.findMany).toHaveBeenCalledExactlyOnceWith({ orderBy: { receivedAt: 'desc' } });
+    expect(result.headers['cache-control']).toBeUndefined();
+  });
+  it('WP9 returns an empty out-of-range page with the real total', async () => {
+    prisma.waitlistEntry.findMany.mockResolvedValueOnce([]);
+    const result = await request(app).get('/api/waitlist?page=3&pageSize=1').expect(200);
+    expect(result.body).toEqual({ waitlist: [], total: 1, page: 3, pageSize: 1, totalPages: 1 });
+    expect(prisma.waitlistEntry.findMany.mock.calls[0][0].skip).toBe(2);
+  });
+  it('WP10 wraps paged findMany errors without exposing their original message', async () => {
+    prisma.waitlistEntry.findMany.mockRejectedValueOnce(new Error('SYNTH_SECRET_ARG'));
+    const result = await request(app).get('/api/waitlist?page=1').expect(500);
+    expect(errors[0].message).toBe('Waitlist storage error');
+    expect(JSON.stringify(result.body)).not.toContain('SYNTH_SECRET_ARG');
   });
 });

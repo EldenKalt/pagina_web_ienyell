@@ -46,6 +46,7 @@ beforeEach(async () => {
   await fs.mkdir(path.join(root, 'tmp')); await fs.mkdir(path.join(root, 'commissions'));
   process.env.COMMISSIONS_UPLOAD_ROOT = root; rows = [row()]; errors = [];
   prisma = { commissionRequest: {
+    count: vi.fn(async () => rows.length),
     findMany: vi.fn(async () => [...rows].sort((a, b) => b.receivedAt - a.receivedAt)),
     findUnique: vi.fn(async ({ where }) => rows.find((entry) => entry.id === where.id) ?? null),
     create: vi.fn(async ({ data }) => { const created = row(data.id, data); rows.push(created); return created; }),
@@ -214,5 +215,104 @@ describe('commissions in Postgres with an injected Prisma', () => {
     prisma.commissionRequest.findMany.mockRejectedValueOnce(Object.assign(new Error('SYNTH_SECRET_ARG'), { code: 'P9999' }));
     await request(app).get('/api/commissions').expect(500);
     expect(errors[0].message).toBe('Commission storage error'); expect(errors[0].code).toBe('P9999');
+  });
+});
+
+describe('commissions optional pagination', () => {
+  it('CP1 returns the paged contract and shares the same where object', async () => {
+    rows.push(row('COM-DEF456', { name: 'Synthetic Second Artist' }));
+    prisma.commissionRequest.findMany.mockResolvedValueOnce([rows[1]]);
+    const result = await request(app).get('/api/commissions?page=2&pageSize=1').expect(200);
+    expect(Object.keys(result.body).sort()).toEqual(['commissions', 'total', 'page', 'pageSize', 'totalPages'].sort());
+    expect(result.body).toEqual({ commissions: [router.toCommissionResponse(rows[1])], total: 2, page: 2, pageSize: 1, totalPages: 2 });
+    expect(prisma.commissionRequest.count).toHaveBeenCalledExactlyOnceWith({ where: {} });
+    expect(prisma.commissionRequest.findMany).toHaveBeenCalledExactlyOnceWith({
+      where: {}, orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }], skip: 1, take: 1,
+    });
+    expect(prisma.commissionRequest.count.mock.calls[0][0].where).toBe(prisma.commissionRequest.findMany.mock.calls[0][0].where);
+  });
+  it.each([['500', 100], ['abc', 20]])('CP2 normalizes pageSize=%s', async (value, take) => {
+    const result = await request(app).get(`/api/commissions?pageSize=${value}`).expect(200);
+    expect(prisma.commissionRequest.findMany.mock.calls[0][0].take).toBe(take);
+    expect(result.body.pageSize).toBe(take);
+    expect(result.body.page).toBe(1);
+  });
+  it('CP3 searches id, name and email case-insensitively', async () => {
+    await request(app).get('/api/commissions?q=Artist').expect(200);
+    const where = { OR: ['id', 'name', 'email'].map((field) => ({ [field]: { contains: 'Artist', mode: 'insensitive' } })) };
+    expect(prisma.commissionRequest.count).toHaveBeenCalledWith({ where });
+    expect(prisma.commissionRequest.findMany.mock.calls[0][0].where).toEqual(where);
+    expect(prisma.commissionRequest.count.mock.calls[0][0].where).toBe(prisma.commissionRequest.findMany.mock.calls[0][0].where);
+  });
+  it('CP4 normalizes Reviewing status', async () => {
+    await request(app).get('/api/commissions').query({ status: ' Reviewing ' }).expect(200);
+    expect(prisma.commissionRequest.count).toHaveBeenCalledWith({ where: { status: 'reviewing' } });
+    expect(prisma.commissionRequest.findMany.mock.calls[0][0].where.status).toBe('reviewing');
+  });
+  it.each(['all', ''])('CP4 omits the status filter for %j', async (status) => {
+    await request(app).get('/api/commissions').query({ status }).expect(200);
+    expect(prisma.commissionRequest.count).toHaveBeenCalledWith({ where: {} });
+    expect(prisma.commissionRequest.findMany.mock.calls[0][0].where).not.toHaveProperty('status');
+  });
+  it('CP4 rejects bogus status without calling Prisma', async () => {
+    await request(app).get('/api/commissions?status=bogus').expect(400, { error: 'Invalid commission status.' });
+    for (const method of Object.values(prisma.commissionRequest)) expect(method).not.toHaveBeenCalled();
+  });
+  it('CP5 combines status and search with AND', async () => {
+    await request(app).get('/api/commissions?status=reviewing&q=x').expect(200);
+    const where = { status: 'reviewing', OR: ['id', 'name', 'email'].map((field) => ({ [field]: { contains: 'x', mode: 'insensitive' } })) };
+    expect(prisma.commissionRequest.count).toHaveBeenCalledWith({ where });
+    expect(prisma.commissionRequest.findMany.mock.calls[0][0].where).toEqual(where);
+    expect(prisma.commissionRequest.count.mock.calls[0][0].where).toBe(prisma.commissionRequest.findMany.mock.calls[0][0].where);
+  });
+  it.each([[{ authorized: false }, 401], [{ role: 'CLIENT' }, 403]])('CP6 authenticates before parsing or querying %j', async (auth, status) => {
+    await request(createApp(auth)).get('/api/commissions?page=1&status=bogus').expect(status);
+    for (const method of Object.values(prisma.commissionRequest)) expect(method).not.toHaveBeenCalled();
+  });
+  it('CP7 wraps count errors without exposing their original message', async () => {
+    prisma.commissionRequest.count.mockRejectedValueOnce(new Error('SYNTH_SECRET_ARG'));
+    const result = await request(app).get('/api/commissions?page=1').expect(500);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toBe('Commission storage error');
+    expect(JSON.stringify(result.body)).not.toContain('SYNTH_SECRET_ARG');
+  });
+  it('CP8 orders by receivedAt and id descending', async () => {
+    await request(app).get('/api/commissions?page=1').expect(200);
+    expect(prisma.commissionRequest.findMany.mock.calls[0][0].orderBy).toEqual([{ receivedAt: 'desc' }, { id: 'desc' }]);
+  });
+  it('CP9 sets no-store only for paged responses', async () => {
+    const paged = await request(app).get('/api/commissions?page=2&pageSize=1').expect(200);
+    const legacy = await request(app).get('/api/commissions').expect(200);
+    expect(paged.headers['cache-control']).toBe('no-store');
+    expect(legacy.headers['cache-control']).toBeUndefined();
+    expect(Array.isArray(legacy.body)).toBe(true);
+    expect(prisma.commissionRequest.count).toHaveBeenCalledTimes(1);
+  });
+  it('CP10 ignores an array search while selecting paged mode', async () => {
+    const result = await request(app).get('/api/commissions?q=a&q=b').expect(200);
+    expect(result.body.pageSize).toBe(20);
+    expect(prisma.commissionRequest.count).toHaveBeenCalledWith({ where: {} });
+    expect(prisma.commissionRequest.findMany.mock.calls[0][0].where).not.toHaveProperty('OR');
+  });
+  it('CP11 rejects non-string status without calling Prisma', async () => {
+    await request(app).get('/api/commissions?status[]=x').expect(400, { error: 'Invalid commission status.' });
+    for (const method of Object.values(prisma.commissionRequest)) expect(method).not.toHaveBeenCalled();
+  });
+  it('CP12 returns an empty out-of-range page with the real total', async () => {
+    prisma.commissionRequest.findMany.mockResolvedValueOnce([]);
+    const result = await request(app).get('/api/commissions?page=3&pageSize=1').expect(200);
+    expect(result.body).toEqual({ commissions: [], total: 1, page: 3, pageSize: 1, totalPages: 1 });
+    expect(prisma.commissionRequest.findMany.mock.calls[0][0].skip).toBe(2);
+  });
+  it('CP13 wraps paged findMany errors without exposing their original message', async () => {
+    prisma.commissionRequest.findMany.mockRejectedValueOnce(new Error('SYNTH_SECRET_ARG'));
+    const result = await request(app).get('/api/commissions?page=1').expect(500);
+    expect(errors[0].message).toBe('Commission storage error');
+    expect(JSON.stringify(result.body)).not.toContain('SYNTH_SECRET_ARG');
+  });
+  it('CP14 selects paged mode for an empty search', async () => {
+    const result = await request(app).get('/api/commissions?q=').expect(200);
+    expect(result.body.page).toBe(1);
+    expect(prisma.commissionRequest.findMany.mock.calls[0][0].where).toEqual({});
   });
 });

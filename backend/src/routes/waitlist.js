@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { authenticateToken, authorizeRole } = require('../middleware/auth');
+const { parsePage, parsePageSize, parseSearch, buildPageMeta } = require('../utils/adminListQuery');
 
 const router = express.Router();
 const rateLimits = new Map();
@@ -69,10 +70,33 @@ router.post('/', rateLimit, async (req, res, next) => {
   }
 });
 
-router.get('/', authenticateToken, authorizeRole('ADMIN'), async (_req, res, next) => {
+router.get('/', authenticateToken, authorizeRole('ADMIN'), async (req, res, next) => {
+  if (!['page', 'pageSize', 'q'].some((key) => Object.hasOwn(req.query, key))) {
+    try {
+      const rows = await prisma.waitlistEntry.findMany({ orderBy: { receivedAt: 'desc' } });
+      return res.json(rows.map(toWaitlistResponse));
+    } catch (error) {
+      return next(storageError(error));
+    }
+  }
+
+  const page = parsePage(req.query.page);
+  const pageSize = parsePageSize(req.query.pageSize);
+  const q = parseSearch(req.query.q);
+  const where = {};
+  if (q) {
+    where.OR = ['name', 'email', 'category'].map((field) => ({ [field]: { contains: q, mode: 'insensitive' } }));
+  }
   try {
-    const rows = await prisma.waitlistEntry.findMany({ orderBy: { receivedAt: 'desc' } });
-    return res.json(rows.map(toWaitlistResponse));
+    const orderBy = [{ receivedAt: 'desc' }, { id: 'desc' }];
+    const skip = (page - 1) * pageSize;
+    const take = pageSize;
+    const [total, rows] = await Promise.all([
+      prisma.waitlistEntry.count({ where }),
+      prisma.waitlistEntry.findMany({ where, orderBy, skip, take }),
+    ]);
+    res.set('Cache-Control', 'no-store');
+    return res.json({ waitlist: rows.map(toWaitlistResponse), ...buildPageMeta(total, page, pageSize) });
   } catch (error) {
     return next(storageError(error));
   }
