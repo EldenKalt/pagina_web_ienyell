@@ -292,3 +292,113 @@ describe('existing public blog contracts', () => {
     });
   });
 });
+
+describe('admin blog detail and summary (T002)', () => {
+  it('B1/B9: returns an ADMIN draft by id with paragraph HTML and no-store', async () => {
+    const { paragraphHtml } = require('../utils/annotationContent');
+    const response = await request(app).get('/api/blog/admin/7')
+      .set('Authorization', `Bearer ${token()}`).expect(200);
+
+    expect(response.body).toEqual({ ...storedPost, content: paragraphHtml('<p>Safe</p>', 7) });
+    expect(response.body.id).toBe(7);
+    expect(response.body.isPublished).toBe(false);
+    expect(response.body.content).toContain('Safe');
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(prisma.blogPost.findUnique).toHaveBeenCalledExactlyOnceWith({
+      where: { id: 7 }, select: expect.objectContaining({ content: true }),
+    });
+    expect(prisma.blogPost.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { isPublished: true } }));
+    expect(prisma.blogPost.updateMany.mock.invocationCallOrder[0])
+      .toBeLessThan(prisma.blogPost.findUnique.mock.invocationCallOrder[0]);
+  });
+
+  it('B2: lets a COLABORADOR with the blog feature read a draft', async () => {
+    const response = await request(app).get('/api/blog/admin/7')
+      .set('Authorization', `Bearer ${token('COLABORADOR', ['blog'])}`).expect(200);
+    expect(response.body).toMatchObject({ id: 7, isPublished: false });
+  });
+
+  it.each([
+    ['COLABORADOR', [], 403],
+    ['CLIENT', [], 403],
+    [null, [], 401],
+  ])('B3: rejects detail access for %s with features %j and status %i', async (role, features, status) => {
+    const detailRequest = request(app).get('/api/blog/admin/7');
+    if (role) detailRequest.set('Authorization', `Bearer ${token(role, features)}`);
+    await detailRequest.expect(status);
+    expect(prisma.blogPost.findUnique).not.toHaveBeenCalled();
+  });
+
+  it.each(['abc', '0'])('B4: rejects invalid detail id %s before a Prisma read', async (id) => {
+    const response = await request(app).get(`/api/blog/admin/${id}`)
+      .set('Authorization', `Bearer ${token()}`).expect(400);
+    expect(response.body).toEqual({ error: 'ID de post inválido' });
+    expect(prisma.blogPost.findUnique).not.toHaveBeenCalled();
+    expect(prisma.blogPost.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('B5: returns 404 for a missing admin post', async () => {
+    prisma.blogPost.findUnique.mockResolvedValueOnce(null);
+    const response = await request(app).get('/api/blog/admin/7')
+      .set('Authorization', `Bearer ${token()}`).expect(404);
+    expect(response.body).toEqual({ error: 'Post no encontrado' });
+  });
+
+  it('B6/B9: selects only the six summary fields and sets no-store', async () => {
+    const summary = {
+      id: 7, slug: 'test-article', title: 'Test article', isPublished: false,
+      publishedAt: null, updatedAt: new Date('2026-01-01T00:00:00Z'),
+    };
+    prisma.blogPost.findMany.mockResolvedValueOnce([summary]);
+    const response = await request(app).get('/api/blog/admin?view=summary')
+      .set('Authorization', `Bearer ${token()}`).expect(200);
+    expect(prisma.blogPost.findMany).toHaveBeenCalledExactlyOnceWith({
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true, slug: true, title: true, isPublished: true, publishedAt: true, updatedAt: true },
+    });
+    expect(response.body).toEqual({ posts: [{ ...summary, updatedAt: summary.updatedAt.toISOString() }] });
+    expect(response.body.posts[0]).not.toHaveProperty('content');
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(prisma.blogPost.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { isPublished: true } }));
+    expect(prisma.blogPost.updateMany.mock.invocationCallOrder[0])
+      .toBeLessThan(prisma.blogPost.findMany.mock.invocationCallOrder[0]);
+  });
+
+  it.each(['', '?view=other'])('B7: preserves the full admin list and headers for %s', async (query) => {
+    const { paragraphHtml } = require('../utils/annotationContent');
+    prisma.blogPost.findMany.mockResolvedValueOnce([{ ...storedPost }]);
+    const response = await request(app).get(`/api/blog/admin${query}`)
+      .set('Authorization', `Bearer ${token()}`).expect(200);
+    expect(prisma.blogPost.findMany).toHaveBeenCalledExactlyOnceWith({
+      orderBy: { updatedAt: 'desc' }, select: expect.objectContaining({ content: true }),
+    });
+    expect(response.body).toEqual({ posts: [{ ...storedPost, content: paragraphHtml(storedPost.content, storedPost.id) }] });
+    expect(response.headers['cache-control']).toBeUndefined();
+  });
+
+  it('B8: keeps comment-threads routed to its existing handler', async () => {
+    // Reload this sibling controller so its CommonJS Prisma reference uses this test's mock.
+    const paths = [require.resolve('./blog.js'), require.resolve('../controllers/commentController')];
+    const cached = paths.map((path) => require.cache[path]);
+    prisma.annotationTarget.findUnique = vi.fn(async () => null);
+    try {
+      for (const path of paths) delete require.cache[path];
+      const threadsApp = express();
+      threadsApp.use('/api/blog', require('./blog.js'));
+      const response = await request(threadsApp).get('/api/blog/admin/7/comment-threads')
+        .set('Authorization', `Bearer ${token()}`).expect(200);
+      expect(response.body).toMatchObject({ threads: [], total: 0, page: 1, totalPages: 0 });
+      expect(response.body.paragraphs).toHaveLength(1);
+      expect(response.body).not.toHaveProperty('content');
+      expect(response.body).not.toHaveProperty('id');
+      expect(prisma.blogPost.findUnique).toHaveBeenCalledExactlyOnceWith({
+        where: { id: 7 }, select: { id: true, content: true },
+      });
+    } finally {
+      paths.forEach((path, index) => {
+        if (cached[index]) require.cache[path] = cached[index];
+        else delete require.cache[path];
+      });
+    }
+  });
+});

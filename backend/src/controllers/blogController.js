@@ -468,14 +468,52 @@ async function getPost(req, res, next) {
   }
 }
 
-async function listAdmin(_req, res, next) {
+async function listAdmin(req, res, next) {
   try {
     await publishDueBlogPosts();
+    if (req.query.view === "summary") {
+      const posts = await prisma.blogPost.findMany({
+        orderBy: { updatedAt: "desc" },
+        select: {
+          id: true,
+          slug: true,
+          title: true,
+          isPublished: true,
+          publishedAt: true,
+          updatedAt: true
+        }
+      });
+      res.set("Cache-Control", "no-store");
+      return res.json({ posts });
+    }
     const posts = await prisma.blogPost.findMany({
       orderBy: { updatedAt: "desc" },
       select: ADMIN_POST_SELECT
     });
     return res.json({ posts: posts.map((post) => ({ ...post, content: paragraphHtml(post.content, post.id) })) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function getAdminPost(req, res, next) {
+  try {
+    const id = parsePostId(req.params.id);
+    if (!id) {
+      return res.status(400).json({ error: "ID de post inválido" });
+    }
+
+    await publishDueBlogPosts();
+    const post = await prisma.blogPost.findUnique({
+      where: { id },
+      select: ADMIN_POST_SELECT
+    });
+    if (!post) {
+      return res.status(404).json({ error: "Post no encontrado" });
+    }
+
+    res.set("Cache-Control", "no-store");
+    return res.json({ ...post, content: paragraphHtml(post.content, post.id) });
   } catch (error) {
     return next(error);
   }
@@ -647,6 +685,7 @@ module.exports = {
   getPublicSeries,
   getPost,
   listAdmin,
+  getAdminPost,
   createPost,
   updatePost,
   togglePublish,
