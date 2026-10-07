@@ -51,7 +51,6 @@ export default function Header() {
           <Link href="/about">Know me</Link>
           <Link href="/blog">Blog</Link>
           <Link href="#">Store</Link>
-          <Link href="#">Learn</Link>
         </nav>
         <div className="header-actions">
           <Link className="header-commission-cta" href="/services">

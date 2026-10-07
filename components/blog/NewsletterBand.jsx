@@ -7,8 +7,7 @@ import BlogFeaturedStack from './BlogFeaturedStack';
  */
 export default function NewsletterBand({
   title = 'Join the community — get updates and tips',
-  body = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore.',
-  // (Future content: one line on what subscribers receive and how often)
+  body = 'Sign up for article updates from Enyell. Confirm your email to join the list.',
   posts = [],
 }) {
   return (

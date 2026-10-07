@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { useAuth } from '../../../context/AuthContext';
+import { loginDestination } from '../../../lib/loginReturn';
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -13,12 +14,11 @@ export default function AdminLoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  if (isLoading) return null;
+  useEffect(() => {
+    if (!isLoading && user) router.replace(loginDestination(new URLSearchParams(window.location.search).get('returnTo'), user.role));
+  }, [user, isLoading, router]);
 
-  if (user) {
-    router.replace('/admin');
-    return null;
-  }
+  if (isLoading || user) return null;
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -27,7 +27,6 @@ export default function AdminLoginPage() {
 
     try {
       await login(email, password);
-      router.replace('/admin');
     } catch (loginError) {
       setError(loginError?.message || 'Login failed');
     } finally {
@@ -39,7 +38,7 @@ export default function AdminLoginPage() {
     <main className="cms-login-page">
       <div className="cms-login-card">
         <h1 className="cms-login-title">ienyell</h1>
-        <p className="cms-login-subtitle">Admin Panel</p>
+        <p className="cms-login-subtitle">Sign in to your account</p>
 
         {error && (
           <div className="cms-login-error" role="alert">

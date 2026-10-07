@@ -52,13 +52,16 @@ export default function BlogMarginNotes({ contentRef, notes = [], onOpenAll }) {
       .map((note) => {
         // The quote alone, with no stored context: see the note in
         // data/blogPlaceholderNotes about what the API should send instead.
-        const range = resolveSelector(root, { exact: note.anchor.trim() }, index);
-        if (!range) return null;
+        const paragraph = note.paragraphId
+          ? [...root.querySelectorAll('p[data-paragraph-id]')].find((element) => element.getAttribute('data-paragraph-id') === note.paragraphId)
+          : null;
+        const range = !note.paragraphId ? resolveSelector(root, note.selector || { exact: note.anchor.trim() }, index) : null;
+        if (!paragraph && !range) return null;
 
         // The note belongs to the block its passage STARTS in. A highlight may
         // run from one paragraph into the next; the note still has one home, and
         // it is where the reader began reading it.
-        const block = blockOf(range.startContainer, root);
+        const block = paragraph || blockOf(range.startContainer, root);
         if (!block) return null;
 
         return {

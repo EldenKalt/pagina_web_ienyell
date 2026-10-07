@@ -1,165 +1,97 @@
 'use client';
 
-import { useEffect, useId, useState } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { fetchNotes } from '../../lib/notes';
+import { NOTE_LIMIT, NOTES_DEMO, annotationError } from '../../lib/notes';
+import { useBlogSignIn } from './BlogSignInPrompt';
 import SidePanel from '../SidePanel';
 import BlogNote from './BlogNote';
 
-/**
- * "Your notes" — the reader's own notes on this post, and the form to add one.
- *
- * NOTES ARE NOT COMMENTS. Publishing one puts it in the post's public thread and
- * on the author's profile, and it stays a note: it does not appear in a
- * highlight's reactions panel, which is for conversation. The checkbox says what
- * it does rather than relying on the word "publish" alone.
- *
- * NOT PERSISTED. lib/notes.js reads the placeholder file today and the API later;
- * creating a note clears the form and stores nothing.
- */
-export default function BlogNotesPanel({ open, onClose, slug, anchor }) {
+// Parent owns the notes so the list, public section and paragraph margin agree.
+export default function BlogNotesPanel({ open, onClose, anchor, annotations }) {
   const { user, isLoading } = useAuth();
-  const router = useRouter();
-  const [notes, setNotes] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const requestSignIn = useBlogSignIn();
   const [draft, setDraft] = useState('');
-  const [publish, setPublish] = useState(false);
-  const fieldId = `note-${useId()}`;
-  const publishId = `note-publish-${useId()}`;
-
-  const locked = !isLoading && !user;
-
+  const [isPublic, setPublic] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [deleting, setDeleting] = useState(null);
+  const request = useRef(null);
+  const field = useId();
+  const editor = useRef(null);
+  const locked = !user;
+  const tooLong = draft.length > NOTE_LIMIT;
   useEffect(() => {
-    if (!open || !slug) return undefined;
-
-    let cancelled = false;
-    setLoading(true);
-    setError('');
-
-    fetchNotes(slug)
-      .then((data) => {
-        if (!cancelled) setNotes(data.notes);
-      })
-      .catch((loadError) => {
-        if (!cancelled) setError(loadError.message || 'Your notes could not be loaded.');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [open, slug]);
-
-  const handleSubmit = (event) => {
+    setDraft(''); setPublic(false); setEditing(null); setDeleting(null); setError(''); request.current = null;
+  }, [user?.id]);
+  useEffect(() => { if (anchor) { setEditing(null); setError(''); } }, [anchor]);
+  const reset = () => { setDraft(''); setPublic(false); setEditing(null); request.current = null; };
+  const submit = async (event) => {
     event.preventDefault();
-    if (locked) {
-      router.push('/users/login');
-      return;
-    }
-    setDraft('');
-    setPublish(false);
+    if (isLoading || busy) return;
+    if (locked) { requestSignIn('save a note'); return; }
+    if (!draft.trim() || tooLong) return;
+    const payload = editing ? { body: draft, isPublic } : { body: draft, isPublic, anchor: anchor || null };
+    const signature = JSON.stringify(payload);
+    if (request.current?.signature !== signature) request.current = { signature, key: crypto.randomUUID() };
+    setBusy(true); setError('');
+    try {
+      const result = await annotations.saveNote(editing?.id, payload, request.current.key);
+      if (result) reset();
+    } catch (failure) { setError(annotationError(failure)); if (failure.status === 401) requestSignIn('save your note'); }
+    finally { setBusy(false); }
   };
-
+  const remove = async (id) => {
+    setBusy(true); setError('');
+    try { await annotations.removeNote(id); setDeleting(null); if (editing?.id === id) reset(); }
+    catch (failure) { setError(annotationError(failure)); }
+    finally { setBusy(false); }
+  };
+  const quote = editing?.anchor || anchor?.exact;
   return (
-    <SidePanel
-      open={open}
-      onClose={onClose}
-      titleId="blog-notes-panel-title"
-      title="Your notes"
-      description="Read the notes that you take from this content."
-    >
-      <form className="blog-note-composer" onSubmit={handleSubmit}>
-        <h3 className="blog-note-composer-title">Create a note!</h3>
-        <p className="blog-note-composer-hint">
-          All your notes are kept on{' '}
-          <Link href="/users/profile">your profile</Link>.
+    <SidePanel open={open} onClose={onClose} titleId={`notes-${field}`} title="Your notes" description="Your definitions, ideas and things to remember.">
+      <form className="blog-note-composer" onSubmit={submit}>
+        <h3 className="blog-note-composer-title">{editing ? 'Edit your note' : 'Create a note'}</h3>
+        {quote && <blockquote className="blog-note-anchor"><p>{quote}</p></blockquote>}
+        <label htmlFor={field}>Write a note</label>
+        <textarea ref={editor} id={field} className="blog-comment-field" rows={4} value={draft}
+          onChange={(event) => setDraft(event.target.value)} readOnly={locked || busy}
+          placeholder={locked ? 'Sign in to take notes' : 'One idea you want to remember…'}
+          aria-describedby={`${field}-count`} aria-invalid={tooLong || undefined} />
+        <p id={`${field}-count`} className={`blog-note-counter${tooLong ? ' is-over-limit' : ''}`} aria-live="polite">
+          {draft.length.toLocaleString('en-US')} / 2,500 characters{tooLong ? ' — Shorten your note before saving.' : ''}
         </p>
-
-        {/* The passage the note is about, when it was started from a selection.
-            A note without one belongs to the post as a whole and has no margin
-            position — see data/blogPlaceholderNotes.js. */}
-        {anchor ? (
-          <blockquote className="blog-note-anchor">
-            <p>{anchor}</p>
-          </blockquote>
-        ) : null}
-
-        <div className="blog-comment-head">
-          {user?.avatarUrl ? (
-            <img className="blog-comment-avatar" src={user.avatarUrl} alt="" />
-          ) : (
-            <span className="blog-comment-avatar blog-comment-avatar--fallback" aria-hidden="true">
-              {(user?.name || '?').trim().charAt(0)}
-            </span>
-          )}
-          <p className="blog-comment-who">
-            <span className="blog-comment-name">{user?.name || 'Your name'}</span>
-          </p>
-        </div>
-
-        <label className="sr-only" htmlFor={fieldId}>
-          Write a note
+        <label className="blog-note-publish">
+          <input type="checkbox" checked={isPublic} onChange={(event) => setPublic(event.target.checked)} disabled={locked || busy} />
+          <span>Publish this note<span className="blog-note-publish-hint">Others can read it in this article's Public notes.</span></span>
         </label>
-        <textarea
-          id={fieldId}
-          className="blog-comment-field"
-          rows={3}
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder={locked ? 'Sign in to take notes' : 'Write a note for yourself…'}
-          readOnly={locked}
-        />
-
-        <div className="blog-note-publish">
-          <input
-            type="checkbox"
-            id={publishId}
-            checked={publish}
-            onChange={(event) => setPublish(event.target.checked)}
-            disabled={locked}
-          />
-          <label htmlFor={publishId}>
-            Publish this note.
-            <span className="blog-note-publish-hint">
-              It joins the post&rsquo;s conversation and shows on your profile.
-            </span>
-          </label>
-        </div>
-
-        <div className="blog-comment-composer-actions">
-          <button type="submit" className="blog-comment-submit" aria-disabled={locked || undefined}>
-            {locked ? 'Sign in to take notes' : 'Save note'}
+        <div className="blog-note-controls">
+          <button type="submit" className="blog-comment-submit" disabled={isLoading || busy || tooLong || annotations.loading || annotations.error || (!locked && (!draft.trim() || NOTES_DEMO))}>
+            {busy ? 'Saving…' : locked ? 'Sign in to take notes' : 'Save note'}
           </button>
+          {editing && <button type="button" disabled={busy} onClick={reset}>Cancel editing</button>}
         </div>
+        {NOTES_DEMO && <p>Demo notes are read-only.</p>}
       </form>
-
-      {error ? (
-        <div className="blog-public-error" role="alert">
-          {error}
-        </div>
-      ) : null}
-
-      <p className="sr-only" aria-live="polite">
-        {loading ? 'Loading your notes…' : `${notes.length} notes`}
-      </p>
-
-      {loading && !notes.length ? (
-        <div className="blog-loading" role="status">
-          <span className="blog-loading-spinner" />
-          Loading your notes…
-        </div>
-      ) : (
-        <div className="blog-notes-list">
-          {notes.map((note) => (
-            <BlogNote key={note.id} note={note} />
-          ))}
-        </div>
-      )}
+      {error && <p className="blog-public-error" role="alert">{error}</p>}
+      {annotations.error && <div className="blog-public-error" role="alert"><p>{annotations.error}</p><button type="button" onClick={annotations.reload}>Try again</button></div>}
+      {annotations.loading && <p role="status">Loading your notes…</p>}
+      <div className="blog-notes-list">
+        {annotations.notes.map((note) => <div key={note.id}>
+          <BlogNote note={note} />
+          <div className="blog-note-controls">
+            <button type="button" disabled={busy || NOTES_DEMO} onClick={() => { setEditing(note); setDraft(note.body); setPublic(note.isPublic); setError(''); editor.current?.focus(); }}>Edit</button>
+            <button type="button" disabled={busy || NOTES_DEMO} onClick={() => setDeleting(note.id)}>Delete</button>
+          </div>
+          {deleting === note.id && <div className="blog-note-controls" role="group" aria-label="Confirm note deletion">
+            <span>Delete this note permanently?</span>
+            <button type="button" disabled={busy} onClick={() => remove(note.id)}>Delete note</button>
+            <button type="button" disabled={busy} onClick={() => setDeleting(null)}>Keep note</button>
+          </div>}
+        </div>)}
+      </div>
+      {user && !annotations.loading && !annotations.error && !annotations.notes.length && <p>You have no notes on this article yet.</p>}
     </SidePanel>
   );
 }

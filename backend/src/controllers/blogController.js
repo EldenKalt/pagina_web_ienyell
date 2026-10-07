@@ -1,5 +1,9 @@
 const prisma = require("../lib/prisma");
 const { publishDueBlogPosts } = require("../services/publishingScheduler");
+const { sanitizeArticleHtml } = require("../utils/articleHtml");
+const { paragraphHtml } = require("../utils/annotationContent");
+const { withBlogStats } = require('../utils/blogStats');
+const { BLOG_AUTHOR_SELECT } = require('../utils/blogMetadata');
 
 const ADMIN_POST_SELECT = {
   id: true,
@@ -8,19 +12,21 @@ const ADMIN_POST_SELECT = {
   excerpt: true,
   coverUrl: true,
   content: true,
+  notesEnabled: true,
+  commentsEnabled: true,
+  shareCount: true,
   isPublished: true,
   publishedAt: true,
   keywords: true,
   relatedPostIds: true,
   relatedProductIds: true,
+  seriesId: true,
+  series: {
+    select: { id: true, name: true, slug: true }
+  },
   createdAt: true,
   updatedAt: true,
-  author: {
-    select: {
-      id: true,
-      name: true
-    }
-  }
+  author: { select: BLOG_AUTHOR_SELECT }
 };
 
 function parsePositiveInt(value, fallback, maximum = Number.MAX_SAFE_INTEGER) {
@@ -58,6 +64,20 @@ function hasMeaningfulContent(content) {
     .replace(/\s+/g, "")
     .length > 0;
 }
+
+const SERIES_POST_SELECT = {
+  id: true,
+  content: true,
+  slug: true,
+  title: true,
+  excerpt: true,
+  coverUrl: true,
+  publishedAt: true,
+  updatedAt: true,
+  keywords: true,
+  shareCount: true,
+  commentsEnabled: true
+};
 
 function validateOptionalUrl(value) {
   if (value === undefined || value === null || value === "") {
@@ -104,11 +124,11 @@ function validatePostPayload(payload, { partial = false } = {}) {
   }
 
   if (!partial || Object.hasOwn(payload, "content")) {
-    const content = typeof payload.content === "string" ? payload.content : "";
+    const content = typeof payload.content === "string" ? sanitizeArticleHtml(payload.content) : "";
     if (!hasMeaningfulContent(content)) {
       return { error: "El contenido es obligatorio" };
     }
-    data.content = content;
+    data.content = paragraphHtml(content);
   }
 
   if (Object.hasOwn(payload, "excerpt")) {
@@ -117,6 +137,13 @@ function validatePostPayload(payload, { partial = false } = {}) {
       return { error: "El extracto no puede superar 200 caracteres" };
     }
     data.excerpt = excerpt || null;
+  }
+
+  for (const field of ["notesEnabled", "commentsEnabled"]) {
+    if (Object.hasOwn(payload, field)) {
+      if (typeof payload[field] !== "boolean") return { error: "La opción de notas/comentarios debe ser booleana" };
+      data[field] = payload[field];
+    }
   }
 
   if (Object.hasOwn(payload, "coverUrl")) {
@@ -145,6 +172,9 @@ function validatePostPayload(payload, { partial = false } = {}) {
 
   if (Object.hasOwn(payload, "slug")) {
     data.slug = normalizeSlug(payload.slug);
+    if (data.slug === "archive") {
+      return { error: "El slug archive está reservado para el archivo del blog" };
+    }
   }
 
   if (Object.hasOwn(payload, "isPublished")) {
@@ -191,6 +221,7 @@ async function listPublic(req, res, next) {
     const limit = parsePositiveInt(req.query.limit, 6, 24);
     const search = String(req.query.search || "").trim();
     const topic = String(req.query.topic || "").trim();
+    const series = String(req.query.series || "").trim();
 
     // Built once and shared by both queries below — if the count used a different
     // `where`, totalPages would not match the rows actually returned.
@@ -200,6 +231,10 @@ async function listPublic(req, res, next) {
     // category and then searching within it must narrow, not widen.
     if (topic) {
       where.keywords = { has: topic };
+    }
+
+    if (series) {
+      where.series = { is: { name: series } };
     }
 
     if (search) {
@@ -226,24 +261,92 @@ async function listPublic(req, res, next) {
           id: true,
           slug: true,
           title: true,
+          content: true,
           excerpt: true,
           coverUrl: true,
           publishedAt: true,
           keywords: true,
-          author: {
-            select: {
-              name: true
-            }
-          }
+          shareCount: true,
+          commentsEnabled: true,
+          series: {
+            select: { name: true, slug: true }
+          },
+          author: { select: BLOG_AUTHOR_SELECT }
         }
       })
     ]);
 
     return res.json({
-      posts,
+      posts: await withBlogStats(prisma, posts),
       total,
       page,
       totalPages: Math.max(1, Math.ceil(total / limit))
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function listPublicTopics(_req, res, next) {
+  try {
+    await publishDueBlogPosts();
+    const posts = await prisma.blogPost.findMany({
+      where: { isPublished: true },
+      select: { keywords: true }
+    });
+    const topics = [...new Set(posts.flatMap((post) => post.keywords || []))]
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b));
+    return res.json({ topics });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function getPublicSeries(req, res, next) {
+  try {
+    await publishDueBlogPosts();
+    const series = await prisma.blogSeries.findUnique({
+      where: { slug: String(req.params.slug || "") },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        summary: true,
+        category: true,
+        goal: true,
+        audience: true,
+        introPost: { select: { ...SERIES_POST_SELECT, isPublished: true, seriesId: true } },
+        posts: {
+          where: { isPublished: true },
+          orderBy: [{ publishedAt: "asc" }, { id: "asc" }],
+          select: SERIES_POST_SELECT
+        },
+        featuredPosts: {
+          orderBy: [{ position: "asc" }, { id: "asc" }],
+          select: { post: { select: { ...SERIES_POST_SELECT, isPublished: true, seriesId: true } } }
+        }
+      }
+    });
+    if (!series) return res.status(404).json({ error: "Serie no encontrada" });
+
+    const publicPost = (post) => {
+      if (!post?.isPublished || post.seriesId !== series.id) return null;
+      const { isPublished: _isPublished, seriesId: _seriesId, ...summary } = post;
+      return summary;
+    };
+    const { id: _id, ...publicSeries } = series;
+    const introPost = publicPost(series.introPost);
+    const featuredPosts = series.featuredPosts.map(({ post }) => publicPost(post)).filter(Boolean);
+    const enriched = await withBlogStats(prisma, [...series.posts, ...(introPost ? [introPost] : []), ...featuredPosts]);
+    const summaries = new Map(enriched.map((post) => [post.id, post]));
+    return res.json({
+      series: {
+        ...publicSeries,
+        introPost: introPost ? summaries.get(introPost.id) : null,
+        posts: series.posts.map((post) => summaries.get(post.id)),
+        featuredPosts: featuredPosts.map((post) => summaries.get(post.id))
+      }
     });
   } catch (error) {
     return next(error);
@@ -277,9 +380,12 @@ async function getPost(req, res, next) {
               id: true,
               slug: true,
               title: true,
+              content: true,
               excerpt: true,
               coverUrl: true,
-              publishedAt: true
+              publishedAt: true,
+              shareCount: true,
+              commentsEnabled: true
             }
           })
         : Promise.resolve([]),
@@ -310,7 +416,8 @@ async function getPost(req, res, next) {
           select: {
             id: true,
             slug: true,
-            title: true
+            title: true,
+            seriesId: true
           }
         })
       ]);
@@ -323,17 +430,37 @@ async function getPost(req, res, next) {
         .map((id) => relatedProducts.find((entry) => entry.id === id))
         .filter(Boolean);
 
-      const currentIndex = publishedPosts.findIndex((entry) => entry.id === post.id);
-      const previousPost = currentIndex > 0 ? publishedPosts[currentIndex - 1] : null;
-      const nextPost = currentIndex >= 0 && currentIndex < publishedPosts.length - 1
-        ? publishedPosts[currentIndex + 1]
+      const sequencePosts = post.seriesId
+        ? await prisma.blogPost.findMany({
+            where: { isPublished: true, seriesId: post.seriesId },
+            orderBy: [{ publishedAt: "asc" }, { id: "asc" }],
+            select: { id: true, slug: true, title: true, publishedAt: true, seriesId: true }
+          })
+        : publishedPosts;
+      const sequenceIndex = sequencePosts.findIndex((entry) => entry.id === post.id);
+      const previousPost = sequenceIndex > 0 ? sequencePosts[sequenceIndex - 1] : null;
+      const nextPost = sequenceIndex >= 0 && sequenceIndex < sequencePosts.length - 1
+        ? sequencePosts[sequenceIndex + 1]
         : null;
 
+      const { seriesId: _seriesId, series: postSeries, ...publicPost } = post;
+      const [enrichedPost, ...enrichedRelatedPosts] = await withBlogStats(prisma, [publicPost, ...orderedRelatedPosts]);
       return res.json({
-        ...post,
+        ...enrichedPost,
+        content: paragraphHtml(publicPost.content, post.id),
+        series: postSeries ? { name: postSeries.name, slug: postSeries.slug } : null,
         previousPost,
         nextPost,
-        relatedPosts: orderedRelatedPosts,
+        seriesName: post.series?.name || null,
+        seriesSlug: post.series?.slug || null,
+        sequence: sequenceIndex < 0 ? null : {
+          scope: post.seriesId ? "series" : "archive",
+          seriesName: post.series?.name || null,
+          seriesSlug: post.series?.slug || null,
+          position: sequenceIndex + 1,
+          total: sequencePosts.length
+        },
+        relatedPosts: enrichedRelatedPosts,
         relatedProducts: orderedRelatedProducts
       });
   } catch (error) {
@@ -348,7 +475,7 @@ async function listAdmin(_req, res, next) {
       orderBy: { updatedAt: "desc" },
       select: ADMIN_POST_SELECT
     });
-    return res.json({ posts });
+    return res.json({ posts: posts.map((post) => ({ ...post, content: paragraphHtml(post.content, post.id) })) });
   } catch (error) {
     return next(error);
   }
@@ -359,6 +486,10 @@ async function createPost(req, res, next) {
     const validation = validatePostPayload(req.body || {});
     if (validation.error) {
       return res.status(400).json({ error: validation.error });
+    }
+
+    if (normalizeSlug(validation.data.slug || validation.data.title) === "archive") {
+      return res.status(400).json({ error: "El slug archive está reservado para el archivo del blog" });
     }
 
     const post = await prisma.blogPost.create({
@@ -398,7 +529,7 @@ async function updatePost(req, res, next) {
     }
 
     const allowedPayload = {};
-    ["title", "slug", "content", "excerpt", "coverUrl", "keywords", "relatedPostIds", "relatedProductIds", "isPublished", "publishedAt"].forEach((field) => {
+    ["title", "slug", "content", "excerpt", "coverUrl", "keywords", "relatedPostIds", "relatedProductIds", "isPublished", "publishedAt", "notesEnabled", "commentsEnabled"].forEach((field) => {
       if (Object.hasOwn(req.body || {}, field)) {
         allowedPayload[field] = req.body[field];
       }
@@ -419,6 +550,9 @@ async function updatePost(req, res, next) {
       && validation.data.title !== existing.title
       && existing.publishedAt === null
     ) {
+      if (normalizeSlug(validation.data.title) === "archive") {
+        return res.status(400).json({ error: "El slug archive está reservado para el archivo del blog" });
+      }
       validation.data.slug = await uniqueSlug(validation.data.title, id);
     }
 
@@ -509,6 +643,8 @@ async function deletePost(req, res, next) {
 
 module.exports = {
   listPublic,
+  listPublicTopics,
+  getPublicSeries,
   getPost,
   listAdmin,
   createPost,

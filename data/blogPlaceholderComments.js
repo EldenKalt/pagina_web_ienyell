@@ -22,7 +22,7 @@
  *   - one very long body, to exercise the wrap
  */
 
-export const BLOG_USE_PLACEHOLDER_COMMENTS = true;
+export const BLOG_USE_PLACEHOLDER_COMMENTS = false;
 
 const READER_AVATAR = '/recursos/profile_picture.webp';
 

@@ -5,10 +5,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import BlogPostGrid from '../../../../components/blog/BlogPostGrid';
 import BlogSeriesHero from '../../../../components/blog/BlogSeriesHero';
-import {
-  BLOG_USE_PLACEHOLDER_DATA,
-  getPlaceholderSeriesBySlug,
-} from '../../../../data/blogPlaceholderPosts';
+import { fetchBlogApi } from '../../../../lib/blogApi';
 import { getFeaturedComments } from '../../../../data/blogPlaceholderComments';
 
 /**
@@ -27,19 +24,23 @@ export default function BlogSeriesPage() {
   const { slug } = useParams();
   const [series, setSeries] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     if (!slug) return;
 
-    // UI phase: read from the local placeholder posts. Replace this branch with
-    // GET /api/blog/series/:slug when the API grows a series relation.
-    if (BLOG_USE_PLACEHOLDER_DATA) {
-      const found = getPlaceholderSeriesBySlug(slug);
-      setSeries(
-        found ? { ...found, featuredComments: getFeaturedComments(3) } : null,
-      );
-      setLoading(false);
-    }
+    const controller = new AbortController();
+    fetchBlogApi(`/api/blog/series/${encodeURIComponent(slug)}`, { signal: controller.signal })
+      .then(({ series: found }) => setSeries({ ...found, featuredComments: getFeaturedComments(3) }))
+      .catch((loadError) => {
+        if (loadError.name === 'AbortError') return;
+        if (loadError.status !== 404) setError(true);
+        setSeries(null);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
   }, [slug]);
 
   if (loading) {
@@ -60,7 +61,9 @@ export default function BlogSeriesPage() {
           <p className="blog-list-eyebrow">Blog · Series</p>
           <h1 className="blog-archive-title">Series</h1>
         </header>
-        <div className="blog-empty">This series is not available.</div>
+        <div className="blog-empty">
+          {error ? 'The series could not be loaded. Please try again later.' : 'This series is not available.'}
+        </div>
         <p className="blog-series-back">
           <Link href="/blog/archive">Browse the whole archive</Link>
         </p>

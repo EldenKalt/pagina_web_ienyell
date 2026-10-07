@@ -1,0 +1,10 @@
+const router = require('express').Router();
+const { authenticateToken } = require('../middleware/auth');
+const { listReplies, createReply } = require('../controllers/commentController');
+const { authenticateOptional } = require('../middleware/auth');
+const { setCommentLike } = require('../controllers/reactionController');
+router.get('/:id/replies', authenticateOptional, listReplies);
+router.post('/:id/replies', authenticateToken, createReply);
+router.put('/:id/like', authenticateToken, setCommentLike);
+router.delete('/:id/like', authenticateToken, setCommentLike);
+module.exports = router;

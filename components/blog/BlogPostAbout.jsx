@@ -11,7 +11,8 @@ import { slugifyCmsValue } from '../../lib/publishing';
  */
 export default function BlogPostAbout({ post }) {
   const keywords = post?.keywords || [];
-  const seriesName = post?.seriesName;
+  const seriesName = post?.series?.name || post?.seriesName;
+  const seriesSlug = post?.series?.slug || post?.seriesSlug || slugifyCmsValue(seriesName, 'series');
 
   return (
     <section className="blog-post-rail-block">
@@ -32,7 +33,7 @@ export default function BlogPostAbout({ post }) {
           This post is part of the series:{' '}
           <Link
             className="blog-post-rail-series"
-            href={`/blog/series/${slugifyCmsValue(seriesName, 'series')}`}
+            href={`/blog/series/${seriesSlug}`}
           >
             {seriesName}
           </Link>

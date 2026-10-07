@@ -3,19 +3,13 @@
 import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { getApiBase } from '../../../lib/authHelper';
+import { fetchBlogApi } from '../../../lib/blogApi';
 import BlogPostGrid from '../../../components/blog/BlogPostGrid';
 import BlogPagination from '../../../components/blog/BlogPagination';
 import BlogSearch from '../../../components/blog/BlogSearch';
 import BlogTopicNav from '../../../components/blog/BlogTopicNav';
 import useDebouncedValue from '../../../hooks/useDebouncedValue';
-import { searchPosts, toPosts, filterByTopic, filterBySeries } from '../../../lib/blogSearch';
-import {
-  BLOG_USE_PLACEHOLDER_DATA,
-  getPlaceholderPosts,
-  getPlaceholderTopics,
-  getPostSeries,
-} from '../../../data/blogPlaceholderPosts';
+import { searchPosts, toPosts } from '../../../lib/blogSearch';
 import { slugifyCmsValue } from '../../../lib/publishing';
 
 const POSTS_PER_PAGE = 6;
@@ -46,65 +40,31 @@ function BlogArchiveContent() {
 
   const debouncedQuery = useDebouncedValue(query, 250);
   const isSearching = Boolean(debouncedQuery.trim());
-  const topics = getPlaceholderTopics();
+  const [topics, setTopics] = useState([]);
 
   // Either narrowing invalidates the current page — page 3 of the unfiltered list is
   // meaningless once the list is filtered.
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchBlogApi('/api/blog/topics', { signal: controller.signal })
+      .then((data) => setTopics(Array.isArray(data.topics) ? data.topics : []))
+      .catch((loadError) => {
+        if (loadError.name !== 'AbortError') setError('The topics could not be loaded.');
+      });
+    return () => controller.abort();
+  }, []);
+
   useEffect(() => {
     setPage(1);
   }, [debouncedQuery, topic, series]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    // UI phase: read from the local placeholder posts. Remove this branch — and the
-    // BLOG_USE_PLACEHOLDER_DATA import — when reconnecting to the live API.
-    if (BLOG_USE_PLACEHOLDER_DATA) {
-      setError('');
-      setLoading(false);
-
-      // Each narrowing runs inside the last, so all three compose instead of
-      // overriding each other: the series, then the category within it, then the
-      // search within that.
-      const scoped = filterByTopic(
-        filterBySeries(getPlaceholderPosts(), series, getPostSeries),
-        topic,
-      );
-
-      const apply = (list) => {
-        if (cancelled) return;
-        const pages = Math.max(1, Math.ceil(list.length / POSTS_PER_PAGE));
-        const safePage = Math.min(page, pages);
-        const start = (safePage - 1) * POSTS_PER_PAGE;
-
-        setPosts(list.slice(start, start + POSTS_PER_PAGE));
-        setTotalPages(pages);
-        setTotalResults(list.length);
-      };
-
-      if (isSearching) {
-        searchPosts(scoped, debouncedQuery).then((found) => apply(toPosts(found)));
-      } else {
-        apply(scoped);
-      }
-
-      return () => {
-        cancelled = true;
-      };
-    }
-
     const controller = new AbortController();
 
     const loadPosts = async () => {
       try {
         setLoading(true);
         setError('');
-
-        const apiBase = getApiBase();
-
-        if (!apiBase) {
-          throw new Error('NEXT_PUBLIC_API_URL is not configured.');
-        }
 
         const params = new URLSearchParams({
           page: String(page),
@@ -114,19 +74,13 @@ function BlogArchiveContent() {
         if (topic) params.set('topic', topic);
         if (series) params.set('series', series);
 
-        const response = await fetch(`${apiBase}/api/blog?${params}`, {
+        const data = await fetchBlogApi(`/api/blog?${params}`, {
           signal: controller.signal,
-          headers: { Accept: 'application/json' },
         });
-
-        if (!response.ok) {
-          throw new Error('The articles could not be loaded.');
-        }
-
-        const data = await response.json();
         setPosts(Array.isArray(data.posts) ? data.posts : []);
         setTotalPages(Number(data.totalPages || 1));
         setTotalResults(Number(data.total || 0));
+        setPage((current) => Math.min(current, Number(data.totalPages || 1)));
       } catch (loadError) {
         if (loadError.name !== 'AbortError') {
           setError(loadError.message || 'The articles could not be loaded.');

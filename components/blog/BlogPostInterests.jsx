@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useBlogSignIn } from './BlogSignInPrompt';
 import { useAuth } from '../../context/AuthContext';
 import BlogPostRailBlock from './BlogPostRailBlock';
 
@@ -22,7 +22,7 @@ import BlogPostRailBlock from './BlogPostRailBlock';
  */
 export default function BlogPostInterests({ topics = [] }) {
   const { user, isLoading } = useAuth();
-  const router = useRouter();
+  const requestSignIn = useBlogSignIn();
   const [followed, setFollowed] = useState(() => new Set());
 
   if (!topics.length) return null;
@@ -31,7 +31,7 @@ export default function BlogPostInterests({ topics = [] }) {
 
   const toggle = (topic) => {
     if (locked) {
-      router.push('/users/login');
+      requestSignIn();
       return;
     }
     setFollowed((current) => {

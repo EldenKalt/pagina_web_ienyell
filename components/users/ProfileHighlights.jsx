@@ -28,13 +28,9 @@ export default function ProfileHighlights({ highlights = [] }) {
             {/* (Dynamic content: the passage the reader marked) */}
 
             <p className="profile-highlight-meta">
-              <Link
-                href={`/blog/${highlight.postSlug}#:~:text=${encodeURIComponent(
-                  highlight.exact.slice(0, 300),
-                )}`}
-              >
-                {highlight.postTitle}
-              </Link>
+              {highlight.postSlug ? <Link
+                href={`/blog/${highlight.postSlug}#:~:text=${encodeURIComponent(highlight.exact.slice(0, 300))}`}
+              >{highlight.postTitle}</Link> : <span>{highlight.postTitle}</span>}
               {highlight.createdAt ? (
                 <>
                   <span aria-hidden="true"> · </span>

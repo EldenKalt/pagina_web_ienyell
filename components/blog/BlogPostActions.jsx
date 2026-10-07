@@ -1,8 +1,7 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useBlogSignIn } from './BlogSignInPrompt';
 import { useAuth } from '../../context/AuthContext';
-import { placeholderAttrs } from '../../lib/placeholder';
 import BlogIcon from './BlogIcon';
 import BlogMenu from './BlogMenu';
 
@@ -10,14 +9,8 @@ import BlogMenu from './BlogMenu';
  * The action bar that sits under the post byline: reactions, comments and share on
  * the left, save / listen / more on the right.
  *
- * NOT PERSISTED. There is no reactions, bookmarks or comments endpoint yet, so the
- * counts are whatever the caller passes and nothing a reader does here is stored.
- * The bar exists so the layout, the states and the keyboard path can be reviewed;
- * wire it to the API when the annotation backend lands.
- *
- * Signed out, every control is announced as disabled and sends the reader to the
- * login page instead of pretending to work. While the session is still resolving
- * nothing is marked either way, so the bar never flashes a state it has to undo.
+ * The page owns shared saved and liked state so both action bars and the tools
+ * panel agree. Signed-out personal actions open the sign-in choice.
  */
 
 /** 19.4k rather than 19412 — the design shows compact counts. */
@@ -35,11 +28,17 @@ export default function BlogPostActions({
   onOpenComments,
   saved = false,
   onToggleSave,
+  saveBusy = false,
+  liked = false,
+  onToggleLike,
+  likeBusy = false,
+  onShare,
+  shareBusy = false,
   highlightsHidden = false,
   onToggleHighlights,
 }) {
   const { user, isLoading } = useAuth();
-  const router = useRouter();
+  const requestSignIn = useBlogSignIn();
 
   const signedIn = Boolean(user);
   const locked = !isLoading && !signedIn;
@@ -51,7 +50,7 @@ export default function BlogPostActions({
   const handle = (event) => {
     if (!locked) return;
     event.preventDefault();
-    router.push('/users/login');
+    requestSignIn();
   };
 
   // Shared props for every control, so the locked path cannot drift between them.
@@ -79,17 +78,17 @@ export default function BlogPostActions({
   return (
     <div className="blog-post-actions">
       <div className="blog-post-actions-group">
-        <button
-          {...notWired(`Like this post, ${likes} so far`, 'Reactions are not stored yet')}
-          className="blog-post-action is-unwired"
-        >
+        <button type="button" className={`blog-post-action${liked ? ' is-active' : ''}`}
+          disabled={isLoading || likeBusy} aria-pressed={locked ? undefined : liked}
+          aria-label={`${liked ? 'Unlike' : 'Like'} this post, ${likes} so far`}
+          onClick={() => locked ? requestSignIn('like this post') : onToggleLike?.()}>
           <BlogIcon name="favorite" />
-          <span className="blog-post-action-count" {...placeholderAttrs('post.stats.likes')}>{likes}</span>
+          <span className="blog-post-action-count">{likes}</span>
         </button>
 
         {/* Reading the thread needs no session, so this one is never locked: it
             opens the comments panel for anyone. */}
-        <button
+        {onOpenComments && <button
           type="button"
           className="blog-post-action"
           onClick={onOpenComments}
@@ -97,15 +96,13 @@ export default function BlogPostActions({
           aria-haspopup="dialog"
         >
           <BlogIcon name="chat" />
-          <span className="blog-post-action-count" {...placeholderAttrs('post.stats.comments')}>{comments}</span>
-        </button>
+          <span className="blog-post-action-count">{comments}</span>
+        </button>}
 
-        <button
-          {...notWired(`Share this post, shared ${shares} times`, 'Sharing is not wired up yet')}
-          className="blog-post-action is-unwired"
-        >
+        <button type="button" className="blog-post-action" disabled={shareBusy}
+          onClick={onShare} aria-label={`Share this post, shared ${shares} times`}>
           <BlogIcon name="share" />
-          <span className="blog-post-action-count" {...placeholderAttrs('post.stats.shares')}>{shares}</span>
+          <span className="blog-post-action-count">{shares}</span>
         </button>
       </div>
 
@@ -118,11 +115,12 @@ export default function BlogPostActions({
           onClick={(event) => {
             if (locked) {
               event.preventDefault();
-              router.push('/users/login');
+              requestSignIn();
               return;
             }
             onToggleSave?.();
           }}
+          disabled={isLoading || saveBusy}
           aria-pressed={locked ? undefined : saved}
         >
           <BlogIcon name="bookmark" />

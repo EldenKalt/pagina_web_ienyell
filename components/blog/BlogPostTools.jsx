@@ -3,9 +3,8 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useBlogSignIn } from './BlogSignInPrompt';
 import { useAuth } from '../../context/AuthContext';
-import { placeholderAttrs } from '../../lib/placeholder';
 import BlogIcon from './BlogIcon';
 
 /**
@@ -14,7 +13,7 @@ import BlogIcon from './BlogIcon';
  *
  * "Keep" is the same action as the bookmark in the action bar, not a second one,
  * so both read and write the same state: saving in one shows as saved in the
- * other. NOT PERSISTED, like every other count on this page.
+ * other. Its state and the reaction counters come from the blog API.
  *
  * "Go to main" leads to the post's series. A post that belongs to no series has
  * no main to return to, so the control is left out rather than pointed somewhere
@@ -48,12 +47,18 @@ export default function BlogPostTools({
   seriesHref,
   saved = false,
   onToggleSave,
+  saveBusy = false,
+  liked = false,
+  onToggleLike,
+  likeBusy = false,
+  onShare,
+  shareBusy = false,
   onAddNote,
   onReadNotes,
   onOpenComments,
 }) {
   const { user, isLoading } = useAuth();
-  const router = useRouter();
+  const requestSignIn = useBlogSignIn();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -66,7 +71,7 @@ export default function BlogPostTools({
   const guard = (action) => (event) => {
     if (locked) {
       event.preventDefault();
-      router.push('/users/login');
+      requestSignIn();
       return;
     }
     action?.();
@@ -79,26 +84,27 @@ export default function BlogPostTools({
       <p className="blog-tools-title">Tools</p>
 
       <ul className="blog-tools-list">
-        <li>
+        {onAddNote && <li>
           <button type="button" className="blog-post-interest" onClick={guard(onAddNote)} aria-haspopup="dialog">
             Add Note
             <span className="blog-post-interest-icon" aria-hidden="true">
               <BlogIcon name="add" size={20} />
             </span>
           </button>
-        </li>
-        <li>
+        </li>}
+        {onReadNotes && <li>
           {/* The only one of the four without a `+` in the reference: it opens
               what is already there rather than adding anything. */}
           <button type="button" className="blog-post-interest" onClick={guard(onReadNotes)} aria-haspopup="dialog">
             Read my notes
           </button>
-        </li>
+        </li>}
         <li>
           <button
             type="button"
             className={`blog-post-interest${saved ? ' is-followed' : ''}`}
             onClick={guard(onToggleSave)}
+            disabled={isLoading || saveBusy}
             aria-pressed={locked ? undefined : saved}
           >
             {saved ? 'Kept' : 'Keep'}
@@ -124,23 +130,25 @@ export default function BlogPostTools({
 
       <ul className="blog-tools-stats">
         <li>
-          {/* No endpoint behind it; see BlogPostActions for why these say so. */}
-          <button type="button" className="blog-tools-stat is-unwired" onClick={(e) => e.preventDefault()} aria-disabled="true" title="Reactions are not stored yet" aria-label={`Like this post, ${formatCount(stats?.likes)} so far — not available yet`}>
+          <button type="button" className={`blog-tools-stat${liked ? ' is-active' : ''}`}
+            disabled={isLoading || likeBusy} aria-pressed={locked ? undefined : liked}
+            onClick={guard(onToggleLike)} aria-label={`${liked ? 'Unlike' : 'Like'} this post, ${formatCount(stats?.likes)} so far`}>
             <BlogIcon name="favorite" size={22} />
-            <span {...placeholderAttrs('post.stats.likes')}>{formatCount(stats?.likes)}</span>
+            <span>{formatCount(stats?.likes)}</span>
           </button>
         </li>
-        <li>
+        {onOpenComments && <li>
           {/* Reading the thread needs no account, so this one is never guarded. */}
           <button type="button" className="blog-tools-stat" onClick={onOpenComments} aria-haspopup="dialog" aria-label={`Read ${formatCount(stats?.comments)} comments`}>
             <BlogIcon name="chat" size={22} />
-            <span {...placeholderAttrs('post.stats.comments')}>{formatCount(stats?.comments)}</span>
+            <span>{formatCount(stats?.comments)}</span>
           </button>
-        </li>
+        </li>}
         <li>
-          <button type="button" className="blog-tools-stat is-unwired" onClick={(e) => e.preventDefault()} aria-disabled="true" title="Sharing is not wired up yet" aria-label={`Share this post, shared ${formatCount(stats?.shares)} times — not available yet`}>
+          <button type="button" className="blog-tools-stat" onClick={onShare} disabled={shareBusy}
+            aria-label={`Share this post, shared ${formatCount(stats?.shares)} times`}>
             <BlogIcon name="share" size={22} />
-            <span {...placeholderAttrs('post.stats.shares')}>{formatCount(stats?.shares)}</span>
+            <span>{formatCount(stats?.shares)}</span>
           </button>
         </li>
       </ul>

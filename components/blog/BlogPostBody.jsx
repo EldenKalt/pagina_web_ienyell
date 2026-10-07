@@ -6,6 +6,7 @@ import { applyOutlineIds } from '../../lib/blogOutline';
 import { indexText, resolveSelector } from '../../lib/annotations';
 import BlogSelectionToolbar from './BlogSelectionToolbar';
 import BlogMarginNotes from './BlogMarginNotes';
+import BlogParagraphComments from './BlogParagraphComments';
 import {
   segmentHighlights,
   paintHighlights,
@@ -90,6 +91,8 @@ export default function BlogPostBody({
   onNote,
   notes = [],
   onOpenNotes,
+  commentLocations = [],
+  onOpenParagraphComments,
 }) {
   const contentRef = useRef(null);
   const blocksRef = useRef([]);
@@ -296,6 +299,7 @@ export default function BlogPostBody({
     />
 
     <BlogMarginNotes contentRef={contentRef} notes={notes} onOpenAll={onOpenNotes} />
+    {onOpenParagraphComments && <BlogParagraphComments contentRef={contentRef} locations={commentLocations} onOpen={onOpenParagraphComments} />}
     </div>
 
     {/* Rendered here rather than by the page so the article element stays

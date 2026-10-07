@@ -21,7 +21,7 @@ import { searchPosts, toPosts } from '../../lib/blogSearch';
  * With an active query the curated sections give way to a single result list; the
  * hero stays put so the search field never moves under the user.
  */
-export default function BlogHomeSections({ posts = [], topics = [] }) {
+export default function BlogHomeSections({ posts = [], topics = [], loadError = '' }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const debouncedQuery = useDebouncedValue(query, 250);
@@ -56,6 +56,7 @@ export default function BlogHomeSections({ posts = [], topics = [] }) {
 
   return (
     <main className="blog-home">
+      {loadError ? <p className="blog-public-error" role="alert">{loadError}</p> : null}
       <BlogHero featuredPosts={heroPosts}>
         <BlogSearch
           value={query}

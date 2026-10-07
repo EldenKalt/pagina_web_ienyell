@@ -24,6 +24,7 @@ cold-turkey-blocker-folder-lock
 CLAUDE.md
 .claude/
 .claude
+instrucciones
 
 # ─── Antigravity / Gemini (Google DeepMind) ──────────────────
 AGENTS.md
@@ -53,3 +54,8 @@ aider.conf.yml
 .codeium/
 # ───Prisma ───────────────────────────────────────────────────
 backend/prisma/seed-admin.js
+
+#  ─── Obsidian ──────────────────────────────────────────────
+.obsidian/
+.trash/
+.obsidian

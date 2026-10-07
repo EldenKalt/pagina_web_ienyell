@@ -33,8 +33,7 @@ export default function ProfileSection({
 
       {description ? <p className="profile-section-description">{description}</p> : null}
 
-      {/* Said out loud rather than left to be discovered: nothing on this page
-          persists, and some sections have no backend at all. */}
+      {/* Optional explanatory note for sections still awaiting their own backend. */}
       {note ? <p className="profile-section-note">{note}</p> : null}
 
       {isEmpty ? <p className="profile-empty">{empty}</p> : children}

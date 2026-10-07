@@ -33,7 +33,7 @@ export default function NewsletterForm({ variant = 'inline', buttonLabel = 'Subs
     return (
       <div className={`newsletter newsletter--${variant}`}>
         <p className="newsletter-success" role="status">
-          You&rsquo;re on the list. Check your inbox to confirm your subscription.
+          Check your inbox for the next step. If this address is already subscribed, its message will include an unsubscribe link.
         </p>
       </div>
     );
@@ -82,9 +82,9 @@ export default function NewsletterForm({ variant = 'inline', buttonLabel = 'Subs
         </p>
       ) : null}
 
-      {status === SUBSCRIBE_RESULT.DUPLICATE ? (
-        <p className="newsletter-message is-duplicate" id={messageId} role="status">
-          This address is already subscribed.
+      {status === SUBSCRIBE_RESULT.RATE_LIMITED ? (
+        <p className="newsletter-message is-error" id={messageId} role="alert">
+          Too many requests. Please try again later.
         </p>
       ) : null}
 
@@ -95,7 +95,7 @@ export default function NewsletterForm({ variant = 'inline', buttonLabel = 'Subs
       ) : null}
 
       <p className="newsletter-consent">
-        You&rsquo;ll get an email when a new article goes live. Unsubscribe anytime.
+        Confirm your address by email to join the article list. Unsubscribe anytime.
       </p>
     </div>
   );

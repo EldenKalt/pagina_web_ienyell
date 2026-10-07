@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import { placeholderAttrs } from '../../lib/placeholder';
 
 /**
  * Author card at the foot of the article: who wrote this, and every way to keep
@@ -16,23 +15,13 @@ import { placeholderAttrs } from '../../lib/placeholder';
  * white for its dark background; here they sit on paper, so `brightness(0)`
  * forces them back to black.
  *
- * The reader and follower counts are invented placeholders and are marked as
- * such — see lib/placeholder.js.
+ * Reader and follower counters stay absent until a real measurement exists.
  */
-
-/** 12.4k rather than 12400, matching the counts in the action bar. */
-function formatCount(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return '0';
-  if (n < 1000) return String(n);
-  const thousands = n / 1000;
-  return `${thousands >= 10 ? Math.round(thousands) : thousands.toFixed(1)}k`;
-}
 
 export default function BlogPostAuthor({ author }) {
   if (!author) return null;
 
-  const socials = author.socials || [];
+  const socials = (author.socials || []).filter((social) => social.url?.startsWith('https://'));
 
   return (
     <section className="blog-author" aria-labelledby="blog-author-title">
@@ -46,29 +35,21 @@ export default function BlogPostAuthor({ author }) {
             Written by {author.name || 'ienyell'}
           </h2>
 
-          <p className="blog-author-stats">
-            <span {...placeholderAttrs('author.readers')}>{formatCount(author.readers)}</span>
-            {' readers'}
-            <span aria-hidden="true"> • </span>
-            <span {...placeholderAttrs('author.followers')}>{formatCount(author.followers)}</span>
-            {' followers'}
-          </p>
-
           {author.bio ? <p className="blog-author-bio">{author.bio}</p> : null}
           {/* (Dynamic content: author.bio — two or three lines in the author's voice) */}
 
           <nav className="blog-author-links" aria-label="More from the author">
-            <Link href="/about">Follow me</Link>
+            <Link href={author.handle ? `/users/${author.handle}` : '/about'}>About the author</Link>
             <Link href="/services">Work with me</Link>
             <Link href="/links">Let&rsquo;s talk!</Link>
           </nav>
 
           {socials.length ? (
             <ul className="blog-author-socials">
-              {socials.map((social) => (
-                <li key={social.name}>
-                  <a href={social.url || '#'} aria-label={social.name}>
-                    <img src={social.icon} alt="" loading="lazy" />
+              {socials.map((social, index) => (
+                <li key={`${social.url}-${index}`}>
+                  <a href={social.url} aria-label={social.name} className={social.icon ? undefined : 'blog-author-social-text'}>
+                    {social.icon ? <img src={social.icon} alt="" loading="lazy" /> : social.name}
                   </a>
                 </li>
               ))}
@@ -78,9 +59,9 @@ export default function BlogPostAuthor({ author }) {
         </div>
       </div>
 
-      <Link className="blog-post-patreon" href={author.patreonUrl || '#'}>
+      {author.patreonUrl?.startsWith('https://') && <Link className="blog-post-patreon" href={author.patreonUrl}>
         Be my patreon
-      </Link>
+      </Link>}
     </section>
   );
 }

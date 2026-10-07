@@ -21,6 +21,7 @@ import TableCell from '@tiptap/extension-table-cell';
 import TableHeader from '@tiptap/extension-table-header';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ResizableImage from './ResizableImage';
+import ParagraphIdentity from './ParagraphIdentity';
 import { authUpload } from '../../lib/authHelper';
 
 const SLASH_ITEMS = [
@@ -62,6 +63,7 @@ export default function BlogEditor({
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
+      ParagraphIdentity,
       StarterKit.configure({
         heading: { levels: [1, 2, 3, 4] },
         dropcursor: { color: 'var(--accent)', width: 2 },

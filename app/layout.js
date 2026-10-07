@@ -8,10 +8,12 @@ import { CalculatorSettingsProvider } from '../context/CalculatorSettingsContext
 import { ServiceCatalogProvider } from '../context/ServiceCatalogContext';
 import { LinkButtonVisibilityProvider } from '../context/LinkButtonVisibilityContext';
 import WizardModal from '../components/wizard/WizardModal';
+import BlogSignInPrompt from '../components/blog/BlogSignInPrompt';
 
 export const metadata = {
   title: 'enyell — Creative Universe',
   description: 'Illustrator and creative artist portfolio',
+  icons: { icon: '/recursos/isotype_enyell.png' },
 };
 
 export default function RootLayout({ children }) {
@@ -31,7 +33,7 @@ export default function RootLayout({ children }) {
               <ServiceCatalogProvider>
                 <WizardProvider>
                   <OffcanvasProvider>
-                    <SiteChrome>{children}</SiteChrome>
+                    <BlogSignInPrompt><SiteChrome>{children}</SiteChrome></BlogSignInPrompt>
                   </OffcanvasProvider>
                   <WizardModal />
                 </WizardProvider>

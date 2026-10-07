@@ -15,6 +15,11 @@ model User {
   googleId             String?                @unique
   role                 Role
   name                 String
+  handle               String?                @unique
+  pronouns             String?
+  bio                  String?
+  patreonUrl           String?
+  socialLinks          Json?
   phone                String?
   company              String?
   isActive             Boolean                @default(true)
@@ -42,6 +47,15 @@ model User {
   ticketMessages       TicketMessage[]        @relation("TicketMessageSender")
   ticketCallRequests   TicketCallRequest[]    @relation("TicketCallRequestsByAdmin")
   blogPosts            BlogPost[]             @relation("BlogAuthor")
+  readerNotes          ReaderNote[]
+  readerHighlights     ReaderHighlight[]
+  blogComments         BlogComment[]
+  commentAssignments   CommentThreadAssignmentLog[]
+  savedBlogPosts        SavedBlogPost[]
+  blogPostLikes         BlogPostLike[]
+  blogCommentLikes      BlogCommentLike[]
+  profileHandleRedirects ProfileHandleRedirect[]
+  wishlistItems         WishlistItem[]
   discountCodesCreated DiscountCode[]         @relation("CodeCreator")
   discountUsages       DiscountUsage[]        @relation("CodeUsages")
   referralsSent        Referral[]             @relation("Referrer")
@@ -94,6 +108,25 @@ model Product {
   addOns          ProductAddOn[]
   questions       ProductQuestion[]
   images          ProductImage[]
+  wishlistItems   WishlistItem[]
+}
+
+model ProfileHandleRedirect {
+  handle    String   @id
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@index([userId])
+}
+
+model WishlistItem {
+  userId    Int
+  productId Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@id([userId, productId])
+  @@index([userId, createdAt, productId])
 }
 
 model ProductImage {
@@ -419,6 +452,9 @@ model BlogPost {
   excerpt           String?
   coverUrl          String?
   content           String
+  notesEnabled      Boolean   @default(true)
+  commentsEnabled   Boolean   @default(true)
+  shareCount        Int       @default(0)
   isPublished       Boolean   @default(false)
   publishedAt       DateTime?
   authorId          Int
@@ -426,8 +462,162 @@ model BlogPost {
   keywords          String[]  @default([])
   relatedPostIds    Int[]     @default([])
   relatedProductIds Int[]     @default([])
+  seriesId          Int?
+  series            BlogSeries? @relation("BlogPostSeries", fields: [seriesId], references: [id], onDelete: SetNull)
+  seriesIntroFor    BlogSeries? @relation("BlogSeriesIntroPost")
+  seriesFeaturedIn  BlogSeriesFeaturedPost[]
+  saves             SavedBlogPost[]
+  likes             BlogPostLike[]
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
+
+  @@index([seriesId, publishedAt])
+}
+
+// The content reference is intentionally not a cascading BlogPost relation:
+// removing an article must not erase readers' notes and quotations.
+model AnnotationTarget {
+  id         Int @id @default(autoincrement())
+  targetType String
+  targetId   Int
+  notes      ReaderNote[]
+  highlights ReaderHighlight[]
+  comments   BlogComment[]
+  @@unique([targetType, targetId])
+}
+
+model BlogComment {
+  id                Int @id @default(autoincrement())
+  targetId          Int
+  target            AnnotationTarget @relation(fields: [targetId], references: [id], onDelete: Restrict)
+  userId            Int?
+  user              User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  rootId            Int?
+  root              BlogComment? @relation("CommentReplies", fields: [rootId], references: [id], onDelete: Cascade)
+  replies           BlogComment[] @relation("CommentReplies")
+  parentId          Int?
+  parent            BlogComment? @relation("CommentParent", fields: [parentId], references: [id], onDelete: SetNull)
+  directReplies     BlogComment[] @relation("CommentParent")
+  body              String
+  selector          Json?
+  highlight         String?
+  paragraphId       String?
+  paragraphSnapshot String?
+  isUnassigned      Boolean @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  assignmentLogs    CommentThreadAssignmentLog[]
+  likes             BlogCommentLike[]
+  @@index([targetId, rootId, createdAt, id])
+  @@index([rootId, createdAt, id])
+  @@index([targetId, paragraphId])
+}
+
+model SavedBlogPost {
+  userId    Int
+  postId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post      BlogPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@id([userId, postId])
+  @@index([userId, createdAt, postId])
+}
+
+model BlogPostLike {
+  userId    Int
+  postId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post      BlogPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@id([userId, postId])
+  @@index([postId])
+}
+
+model BlogCommentLike {
+  userId    Int
+  commentId Int
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  comment   BlogComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  createdAt DateTime    @default(now())
+  @@id([userId, commentId])
+  @@index([commentId])
+}
+
+model CommentThreadAssignmentLog {
+  id                  Int @id @default(autoincrement())
+  threadId            Int
+  thread              BlogComment @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  actorId             Int?
+  actor               User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  fromParagraphId     String?
+  toParagraphId       String?
+  fromUnassigned      Boolean
+  toUnassigned        Boolean
+  createdAt           DateTime @default(now())
+  @@index([threadId, createdAt])
+}
+
+model ReaderNote {
+  id                String @id @default(cuid())
+  targetId          Int
+  target            AnnotationTarget @relation(fields: [targetId], references: [id], onDelete: Restrict)
+  userId            Int
+  user              User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  body              String
+  isPublic          Boolean @default(false)
+  selector          Json?
+  paragraphId       String?
+  paragraphSnapshot String?
+  sourceRevision    String?
+  requestKey        String
+  requestHash       String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  @@unique([userId, requestKey])
+  @@index([userId, targetId, createdAt, id])
+  @@index([targetId, isPublic, createdAt, id])
+}
+
+model ReaderHighlight {
+  id         String @id @default(cuid())
+  targetId   Int
+  target     AnnotationTarget @relation(fields: [targetId], references: [id], onDelete: Restrict)
+  userId     Int
+  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  selector   Json
+  selectorKey String
+  createdAt  DateTime @default(now())
+  @@unique([userId, targetId, selectorKey])
+  @@index([userId, targetId])
+}
+
+model BlogSeries {
+  id            Int                       @id @default(autoincrement())
+  name          String                    @unique
+  slug          String                    @unique
+  summary       String?
+  category      String?
+  goal          String?
+  audience      String?
+  introPostId   Int?                      @unique
+  introPost     BlogPost?                 @relation("BlogSeriesIntroPost", fields: [introPostId], references: [id], onDelete: SetNull)
+  posts         BlogPost[]                @relation("BlogPostSeries")
+  featuredPosts BlogSeriesFeaturedPost[]
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+}
+
+model BlogSeriesFeaturedPost {
+  id         Int        @id @default(autoincrement())
+  seriesId   Int
+  postId     Int
+  position   Int        @default(0)
+  series     BlogSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  post       BlogPost   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  createdAt  DateTime   @default(now())
+
+  @@unique([seriesId, postId])
+  @@index([seriesId, position])
 }
 
 model FaqItem {
@@ -940,4 +1130,44 @@ model NsfwAccessRequest {
   expiresAt DateTime
 
   @@index([email, createdAt])
+}
+
+model NewsletterSubscriber {
+  id                         Int       @id @default(autoincrement())
+  email                      String    @unique
+  confirmationTokenHash      String?
+  confirmationExpiresAt      DateTime?
+  lastRequestAt              DateTime?
+  confirmedAt                DateTime?
+  unsubscribedAt             DateTime?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+}
+
+model CommissionRequest {
+  id             String    @id
+  status         String    @default("pending")
+  name           String
+  email          String
+  payload        Json
+  referenceFiles String[]  @default([])
+  receivedAt     DateTime  @default(now())
+  updatedAt      DateTime?
+
+  @@index([receivedAt])
+  @@index([status])
+}
+
+model WaitlistEntry {
+  id           String   @id
+  category     String   @default("")
+  name         String
+  email        String
+  terms        Boolean
+  newsletter   Boolean  @default(false)
+  reason       String   @default("")
+  registeredAt String
+  receivedAt   DateTime @default(now())
+
+  @@index([receivedAt])
 }

@@ -71,6 +71,8 @@ export default function SidePanel({ open, onClose, title, description, titleId =
     if (!open) return undefined;
 
     const onKeyDown = (event) => {
+      // A native sign-in dialog is above this panel and owns keyboard focus.
+      if (document.querySelector('dialog[open]')) return;
       if (event.key === 'Escape') {
         // Escape belongs to the innermost open layer. This listener is on
         // document in the capture phase, so it sees the key before anything

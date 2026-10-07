@@ -42,7 +42,7 @@ export default function BlogNote({ note, onReport }) {
         </p>
 
         {/* The reference puts a report action behind this menu. */}
-        <button
+        {onReport && <button
           type="button"
           className="blog-comment-more"
           onClick={onReport}
@@ -50,7 +50,7 @@ export default function BlogNote({ note, onReport }) {
           aria-haspopup="menu"
         >
           <BlogIcon name="more" size={20} />
-        </button>
+        </button>}
       </header>
 
       {note.anchor ? (
@@ -61,9 +61,12 @@ export default function BlogNote({ note, onReport }) {
       {/* (Dynamic content: the article fragment this note sits beside) */}
 
       <p className="blog-comment-body">{note.body}</p>
+      {note.paragraphStatus === 'previous-version' && <details className="blog-note-previous-version">
+        <summary>This note refers to an earlier version</summary>
+        <p>{note.paragraphSnapshot || note.anchor}</p>
+      </details>}
 
-      {/* A published note also shows in the post's thread and on the profile, so
-          its state is worth saying out loud rather than leaving to memory. */}
+      {/* Public notes appear in the article's notes section. */}
       <p className={`blog-note-state${note.isPublic ? ' is-public' : ''}`}>
         {note.isPublic ? 'Published — others can read this' : 'Private — only you can read this'}
       </p>

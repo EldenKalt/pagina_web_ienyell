@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildOutline } from '../../lib/blogOutline';
 import { slugifyCmsValue } from '../../lib/publishing';
 import BlogPostSequenceNav from './BlogPostSequenceNav';
@@ -8,19 +8,22 @@ import BlogPostActions from './BlogPostActions';
 import BlogPostAuthor from './BlogPostAuthor';
 import BlogPostComments from './BlogPostComments';
 import BlogCommentsPanel from './BlogCommentsPanel';
-import BlogHighlightPanel from './BlogHighlightPanel';
 import BlogNotesPanel from './BlogNotesPanel';
 import BlogPostHeader from './BlogPostHeader';
 import BlogPostRail from './BlogPostRail';
 import BlogPostRelated from './BlogPostRelated';
-import BlogPostCourses from './BlogPostCourses';
 import BlogPostTools from './BlogPostTools';
 import BlogPostBody from './BlogPostBody';
 import NewsletterForm from './NewsletterForm';
-import { getPlaceholderHighlights } from '../../data/blogPlaceholderHighlights';
-import { getPlaceholderNotes } from '../../data/blogPlaceholderNotes';
-import { getPlaceholderCommentCount } from '../../data/blogPlaceholderComments';
-import { getPlaceholderCourses } from '../../data/blogPlaceholderCourses';
+import { useAuth } from '../../context/AuthContext';
+import useReaderAnnotations from '../../hooks/useReaderAnnotations';
+import { annotationError } from '../../lib/notes';
+import { useBlogSignIn } from './BlogSignInPrompt';
+import BlogPublicNotes from './BlogPublicNotes';
+import BlogPersonalHighlights from './BlogPersonalHighlights';
+import { fetchCommentLocations, commentError } from '../../lib/comments';
+import { fetchSavedState, saveBlogPost, unsaveBlogPost, savedError } from '../../lib/savedBlog';
+import { fetchPostReactions, setPostLike, recordPostShare, reactionError } from '../../lib/reactions';
 
 /**
  * Everything on the post page that a reader can touch.
@@ -31,9 +34,8 @@ import { getPlaceholderCourses } from '../../data/blogPlaceholderCourses';
  * still renders on the server too — client components do — it simply also
  * hydrates.
  *
- * It owns no data. `post` and `safeHtml` arrive as props and are never fetched
- * here; the state below is interface state only, and every piece of it is
- * documented where it sits.
+ * `post` and `safeHtml` arrive from the server. Reader annotations load
+ * separately for the current account and are cleared when that account changes.
  *
  * THE OUTLINE IS BUILT AFTER MOUNT, not during render. buildOutline parses the
  * body with DOMParser and so returns [] on the server. Computing it during
@@ -46,27 +48,128 @@ export default function BlogPostView({ post, safeHtml, slug }) {
   // The comments panel is opened from the action bar, which renders twice — above
   // and below the article — so the state has to sit above both of them.
   const [commentsOpen, setCommentsOpen] = useState(false);
-  const commentTotal = getPlaceholderCommentCount();
-  // The fragment whose reactions panel is open, or null. Opened from a comment's
-  // quoted fragment and from a highlight painted in the article itself.
-  const [highlightFragment, setHighlightFragment] = useState(null);
+  const [commentTarget, setCommentTarget] = useState(null);
+  const [commentRevision, setCommentRevision] = useState(0);
+  const [commentLocations, setCommentLocations] = useState({ paragraphs: [], total: 0, previousCount: 0, generalCount: 0 });
+  const [commentErrorMessage, setCommentErrorMessage] = useState('');
+  const commentTotal = commentLocations.total;
   const [notesOpen, setNotesOpen] = useState(false);
-  // One bookmark shown in two places — the action bar and the tools panel — so
-  // the state sits above both. Not persisted: there is no bookmarks endpoint.
+  const [personalHighlightsOpen, setPersonalHighlightsOpen] = useState(false);
+  const [annotationMessage, setAnnotationMessage] = useState('');
+  const { user, isLoading } = useAuth();
+  const readerRef = useRef({ userId: user?.id, slug });
+  readerRef.current = { userId: user?.id, slug };
+  const requestSignIn = useBlogSignIn();
+  const notesEnabled = post.notesEnabled !== false;
+  const commentsEnabled = post.commentsEnabled !== false;
+  const annotations = useReaderAnnotations(slug, notesEnabled);
+  useEffect(() => {
+    if (!commentsEnabled) return undefined;
+    const controller = new AbortController();
+    setCommentErrorMessage('');
+    setCommentLocations({ paragraphs: [], total: 0, previousCount: 0, generalCount: 0 });
+    fetchCommentLocations(slug, controller.signal).then((data) => {
+      if (!controller.signal.aborted) setCommentLocations(data);
+    }).catch((error) => { if (!controller.signal.aborted) setCommentErrorMessage(commentError(error)); });
+    return () => controller.abort();
+  }, [slug, commentsEnabled, commentRevision]);
+  const openAllComments = () => { setCommentTarget(null); setCommentsOpen(true); };
+  const openComment = (comment) => {
+    setCommentTarget({ paragraphId: comment.paragraphStatus === 'current' ? comment.paragraphId : null,
+      anchor: null, quote: comment.highlight || null });
+    setCommentsOpen(true);
+  };
+  // One bookmark and one reaction are shown in all three post controls.
   const [saved, setSaved] = useState(false);
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [saveReady, setSaveReady] = useState(!user?.id);
+  const [engagementError, setEngagementError] = useState('');
+  const [liked, setLiked] = useState(false);
+  const [likes, setLikes] = useState(post.stats?.likes || 0);
+  const [shares, setShares] = useState(post.stats?.shares || 0);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [likeBusy, setLikeBusy] = useState(false);
+  const [reactionReady, setReactionReady] = useState(false);
+  const [engagementRevision, setEngagementRevision] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    setSaved(false); setLiked(false); setLikes(post.stats?.likes || 0); setShares(post.stats?.shares || 0);
+    setSaveReady(!user?.id); setReactionReady(false); setEngagementError('');
+    const reads = [fetchPostReactions(slug, controller.signal).then((result) => {
+      if (!controller.signal.aborted) { setLikes(result.likes); setLiked(result.liked); setShares(result.shares); setReactionReady(true); }
+    })];
+    if (user?.id) reads.push(fetchSavedState(slug, controller.signal).then((result) => {
+      if (!controller.signal.aborted) { setSaved(result.saved); setSaveReady(true); }
+    }));
+    Promise.all(reads).catch((error) => { if (!controller.signal.aborted) setEngagementError(error.message || 'Reading activity could not be loaded.'); });
+    return () => controller.abort();
+  }, [slug, user?.id, engagementRevision]);
+  const toggleSave = async () => {
+    if (isLoading || saveBusy || !saveReady) return;
+    if (!user) { requestSignIn('save this article'); return; }
+    const identity = { userId: user.id, slug };
+    setSaveBusy(true); setEngagementError('');
+    try {
+      const result = await (saved ? unsaveBlogPost(slug) : saveBlogPost(slug));
+      if (readerRef.current.userId === identity.userId && readerRef.current.slug === identity.slug) setSaved(result.saved);
+    } catch (error) {
+      if (readerRef.current.userId === identity.userId && readerRef.current.slug === identity.slug) {
+        setEngagementError(savedError(error));
+        if (error.status === 401) requestSignIn('save this article');
+      }
+    }
+    finally { setSaveBusy(false); }
+  };
+  const toggleLike = async () => {
+    if (isLoading || likeBusy || !reactionReady) return;
+    if (!user) { requestSignIn('like this article'); return; }
+    const identity = { userId: user.id, slug };
+    setLikeBusy(true); setEngagementError('');
+    try {
+      const result = await setPostLike(slug, !liked);
+      if (readerRef.current.userId === identity.userId && readerRef.current.slug === identity.slug) {
+        setLiked(result.liked); setLikes(result.likes);
+      }
+    } catch (error) {
+      if (readerRef.current.userId === identity.userId && readerRef.current.slug === identity.slug) {
+        setEngagementError(reactionError(error));
+        if (error.status === 401) requestSignIn('like this article');
+      }
+    }
+    finally { setLikeBusy(false); }
+  };
+  const sharePost = async () => {
+    if (shareBusy) return;
+    setShareBusy(true); setEngagementError('');
+    const url = window.location.href;
+    try {
+      if (navigator.share) await navigator.share({ title: post.title, url });
+      else if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(url);
+      else { setEngagementError('Sharing is not available in this browser.'); return; }
+      const result = await recordPostShare(slug);
+      if (readerRef.current.slug === slug) setShares(result.shares);
+    } catch (error) {
+      if (error?.name !== 'AbortError') setEngagementError(error?.status ? 'The link was shared, but its counter could not update.' : 'Could not share this article.');
+    } finally { setShareBusy(false); }
+  };
+  useEffect(() => {
+    setNotesOpen(false);
+    setPersonalHighlightsOpen(false);
+    setNoteAnchor(null);
+    setAnnotationMessage('');
+  }, [user?.id]);
   // Hiding the inline highlights is a reading preference the action bar offers
   // from its "..." menu. It sits here for the same reason `saved` does: the bar
   // renders twice and the two copies must not disagree.
   const [highlightsHidden, setHighlightsHidden] = useState(false);
-  // State, not a memo: the selection toolbar adds to it. NOT PERSISTED — a
-  // highlight made here lives until the page is reloaded.
-  const [highlights, setHighlights] = useState(() => getPlaceholderHighlights());
+  // Reader highlights are persisted by the annotation API and shown only to
+  // their owner.
   // The passage a note is being written about, or null for a note on the post
   // as a whole.
   const [noteAnchor, setNoteAnchor] = useState(null);
-  // The reader's own notes, for the markers in the margin. Same source the notes
-  // panel reads; NOT PERSISTED, like everything else in this phase.
-  const notes = useMemo(() => getPlaceholderNotes(), []);
+  // The margin markers and the notes panel read the same owner-only collection.
+  const highlights = useMemo(() => annotations.highlights.map((item) => ({ ...item, mine: true, count: 1 })), [annotations.highlights]);
+  const notes = annotations.notes;
 
   // See the note in the component header: empty on the server and on the first
   // client render, filled once the body is in the DOM.
@@ -75,11 +178,11 @@ export default function BlogPostView({ post, safeHtml, slug }) {
     setOutline(buildOutline(safeHtml));
   }, [safeHtml]);
 
-  const addHighlight = (selector) => {
-    setHighlights((current) => [
-      ...current,
-      { id: `local-${Date.now()}`, mine: true, count: 1, selector },
-    ]);
+  const addHighlight = async (selector) => {
+    if (isLoading || annotations.loading || annotations.error) return;
+    if (!user) { requestSignIn('save a highlight'); return; }
+    try { setAnnotationMessage(''); await annotations.addHighlight(selector); }
+    catch (error) { setAnnotationMessage(annotationError(error)); if (error.status === 401) requestSignIn('save a highlight'); }
   };
 
   const relatedPosts = Array.isArray(post?.relatedPosts) ? post.relatedPosts : [];
@@ -91,10 +194,16 @@ export default function BlogPostView({ post, safeHtml, slug }) {
       <div className="blog-post-detail-layout has-rail">
         <BlogPostHeader
           post={post}
-          stats={{ ...post.stats, comments: commentTotal }}
-          onOpenComments={() => setCommentsOpen(true)}
+          stats={{ ...post.stats, comments: commentTotal, likes, shares }}
+          onOpenComments={commentsEnabled ? openAllComments : undefined}
           saved={saved}
-          onToggleSave={() => setSaved((v) => !v)}
+          onToggleSave={toggleSave}
+          saveBusy={saveBusy || !saveReady}
+          liked={liked}
+          onToggleLike={toggleLike}
+          likeBusy={likeBusy || !reactionReady}
+          onShare={sharePost}
+          shareBusy={shareBusy}
           highlightsHidden={highlightsHidden}
           onToggleHighlights={() => setHighlightsHidden((v) => !v)}
         />
@@ -102,6 +211,18 @@ export default function BlogPostView({ post, safeHtml, slug }) {
         <BlogPostRail post={post} outline={outline} />
 
         <div className="blog-post-main">
+          {(annotationMessage || annotations.error) && <div className="blog-public-error" role="alert">
+            <p>{annotationMessage || annotations.error}</p>
+            {annotations.error && <button type="button" onClick={annotations.reload}>Try again</button>}
+          </div>}
+          {commentErrorMessage && <div className="blog-public-error" role="alert">
+            <p>{commentErrorMessage}</p>
+            <button type="button" onClick={() => setCommentRevision((value) => value + 1)}>Try again</button>
+          </div>}
+          {engagementError && <div className="blog-public-error" role="alert">
+            <p>{engagementError}</p>
+            <button type="button" onClick={() => setEngagementRevision((value) => value + 1)}>Try again</button>
+          </div>}
           {/* The cover opens the article itself, in the reading column —
               not a full-width band above both columns. */}
           {post.coverUrl ? (
@@ -113,21 +234,23 @@ export default function BlogPostView({ post, safeHtml, slug }) {
             outline={outline}
             highlights={highlights}
             highlightsHidden={highlightsHidden}
-            onOpenHighlight={(id, text) => setHighlightFragment(text)}
+            onOpenHighlight={() => setPersonalHighlightsOpen(true)}
             onHighlight={addHighlight}
-            // Commenting on a passage highlights it too: a comment anchored
-            // to text nobody can see the boundaries of is a comment about
-            // nothing in particular.
-            onComment={(selector, text) => {
-              addHighlight(selector);
-              setHighlightFragment(text);
-            }}
-            onNote={(selector, text) => {
-              setNoteAnchor(text);
+            onComment={commentsEnabled ? (selector, _text, paragraphId) => {
+              setCommentTarget({ paragraphId, anchor: selector, quote: null });
+              setCommentsOpen(true);
+            } : undefined}
+            commentLocations={commentsEnabled ? commentLocations.paragraphs : []}
+            onOpenParagraphComments={commentsEnabled ? (paragraphId) => {
+              setCommentTarget({ paragraphId, anchor: null, quote: null });
+              setCommentsOpen(true);
+            } : undefined}
+            onNote={notesEnabled ? (selector) => {
+              setNoteAnchor(selector);
               setNotesOpen(true);
-            }}
+            } : undefined}
             notes={notes}
-            onOpenNotes={() => setNotesOpen(true)}
+            onOpenNotes={notesEnabled ? () => setNotesOpen(true) : undefined}
           />
 
           {/* Chapter navigation replaces the older prev / back / next row:
@@ -143,21 +266,33 @@ export default function BlogPostView({ post, safeHtml, slug }) {
               a reader who has finished should not have to scroll back up to
               react to it. */}
           <BlogPostActions
-            stats={{ ...post.stats, comments: commentTotal }}
-            onOpenComments={() => setCommentsOpen(true)}
+            stats={{ ...post.stats, comments: commentTotal, likes, shares }}
+            onOpenComments={commentsEnabled ? openAllComments : undefined}
             saved={saved}
-            onToggleSave={() => setSaved((v) => !v)}
+            onToggleSave={toggleSave}
+            saveBusy={saveBusy || !saveReady}
+            liked={liked}
+            onToggleLike={toggleLike}
+            likeBusy={likeBusy || !reactionReady}
+            onShare={sharePost}
+            shareBusy={shareBusy}
             highlightsHidden={highlightsHidden}
             onToggleHighlights={() => setHighlightsHidden((v) => !v)}
           />
 
           <BlogPostAuthor author={post.author} />
 
-          <BlogPostComments
+          {highlights.length > 0 && <button type="button" className="blog-personal-highlights-link" onClick={() => setPersonalHighlightsOpen(true)}>Your highlights ({highlights.length})</button>}
+
+          {notesEnabled && <BlogPublicNotes key={`${slug}-${annotations.publicRevision}`} slug={slug} />}
+
+          {commentsEnabled && <BlogPostComments
             slug={slug}
             total={commentTotal}
-            onOpenHighlight={setHighlightFragment}
-          />
+            revision={commentRevision}
+            onCreated={() => setCommentRevision((value) => value + 1)}
+            onOpenHighlight={openComment}
+          />}
 
           <div className="blog-post-newsletter">
             <h2>Get new articles by email</h2>
@@ -167,45 +302,51 @@ export default function BlogPostView({ post, safeHtml, slug }) {
 
         <BlogPostRelated recommendations={relatedPosts} />
 
-        <BlogPostCourses courses={getPlaceholderCourses()} />
 
-        <BlogCommentsPanel
+        {commentsEnabled && <BlogCommentsPanel
           open={commentsOpen}
           onClose={() => setCommentsOpen(false)}
           slug={slug}
           total={commentTotal}
-        />
+          paragraphId={commentTarget?.paragraphId || null}
+          anchor={commentTarget?.anchor || null}
+          quote={commentTarget?.quote || null}
+          revision={commentRevision}
+          onCreated={() => setCommentRevision((value) => value + 1)}
+          onOpenHighlight={openComment}
+        />}
 
-        <BlogHighlightPanel
-          open={Boolean(highlightFragment)}
-          onClose={() => setHighlightFragment(null)}
-          slug={slug}
-          fragment={highlightFragment}
-        />
-
-        <BlogNotesPanel
+        {notesEnabled && <BlogNotesPanel
           anchor={noteAnchor}
+          annotations={annotations}
           open={notesOpen}
           onClose={() => {
             setNotesOpen(false);
             setNoteAnchor(null);
           }}
-          slug={slug}
-        />
+        />}
+
+        <BlogPersonalHighlights open={personalHighlightsOpen} onClose={() => setPersonalHighlightsOpen(false)} annotations={annotations} />
 
         <BlogPostTools
-          stats={{ ...post.stats, comments: commentTotal }}
+          stats={{ ...post.stats, comments: commentTotal, likes, shares }}
           sequence={post.sequence}
-          seriesHref={
-            post.sequence?.seriesName
+          seriesHref={post.sequence?.seriesSlug
+            ? `/blog/series/${post.sequence.seriesSlug}`
+            : post.sequence?.seriesName
               ? `/blog/series/${slugifyCmsValue(post.sequence.seriesName, 'series')}`
-              : null
-          }
+              : null}
           saved={saved}
-          onToggleSave={() => setSaved((v) => !v)}
-          onAddNote={() => setNotesOpen(true)}
-          onReadNotes={() => setNotesOpen(true)}
-          onOpenComments={() => setCommentsOpen(true)}
+          onToggleSave={toggleSave}
+          saveBusy={saveBusy || !saveReady}
+          liked={liked}
+          onToggleLike={toggleLike}
+          likeBusy={likeBusy || !reactionReady}
+          onShare={sharePost}
+          shareBusy={shareBusy}
+          onAddNote={notesEnabled ? () => setNotesOpen(true) : undefined}
+          onReadNotes={notesEnabled ? () => setNotesOpen(true) : undefined}
+          onOpenComments={commentsEnabled ? openAllComments : undefined}
         />
       </div>
     </article>

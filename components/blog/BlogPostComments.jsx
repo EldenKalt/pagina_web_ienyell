@@ -1,119 +1,61 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { placeholderAttrs } from '../../lib/placeholder';
-import { fetchComments, COMMENTS_PER_BLOCK } from '../../lib/comments';
+import { useEffect, useState } from 'react';
+import { fetchComments, COMMENTS_PER_BLOCK, commentError } from '../../lib/comments';
 import BlogComment from './BlogComment';
 import BlogCommentComposer from './BlogCommentComposer';
 
-/**
- * The comment thread at the foot of the post.
- *
- * "Read all reactions" loads the next block into this list — it does not open a
- * panel. The off-canvas is opened from the comment button in the action bar
- * instead, which is the control that appears both above and below the article.
- *
- * Blocks rather than everything at once: a thread can be long, and the reader
- * asked to see more, not to wait for all of it.
- *
- * NOT PERSISTED. The source is lib/comments.js, which reads the placeholder file
- * today and the API later; nothing a reader writes is stored.
- *
- * The reference says "in this chapter" in its subtitle; it says "post" here.
- * Chapters belong to the literary side of the site and the word should mean one
- * thing across it.
- */
-export default function BlogPostComments({ slug, total = 0, onOpenHighlight }) {
-  const [comments, setComments] = useState([]);
-  const [page, setPage] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
-  const [loading, setLoading] = useState(false);
+const empty = { comments: [], page: 0, totalPages: 0 };
+
+export default function BlogPostComments({ slug, total = 0, revision = 0, onCreated, onOpenHighlight }) {
+  const [current, setCurrent] = useState(empty);
+  const [previous, setPrevious] = useState(empty);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
-
-  const loadBlock = useCallback(
-    async (nextPage) => {
-      setLoading(true);
-      setError('');
-      try {
-        const data = await fetchComments(slug, { page: nextPage, limit: COMMENTS_PER_BLOCK });
-        // Appended, not replaced: each block adds to what is already read.
-        setComments((current) => [...current, ...data.comments]);
-        setPage(data.page);
-        setTotalPages(data.totalPages);
-      } catch (loadError) {
-        setError(loadError.message || 'The comments could not be loaded.');
-      } finally {
-        setLoading(false);
-      }
-    },
-    [slug],
-  );
-
   useEffect(() => {
-    let cancelled = false;
-    setComments([]);
-    setPage(0);
-    fetchComments(slug, { page: 1, limit: COMMENTS_PER_BLOCK })
-      .then((data) => {
-        if (cancelled) return;
-        setComments(data.comments);
-        setPage(data.page);
-        setTotalPages(data.totalPages);
-      })
-      .catch((loadError) => {
-        if (!cancelled) setError(loadError.message || 'The comments could not be loaded.');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [slug]);
-
-  const hasMore = page > 0 && page < totalPages;
-
-  return (
-    <section className="blog-comments" aria-labelledby="blog-comments-title">
-      <header className="blog-comments-head">
-        <h2 className="blog-comments-title" id="blog-comments-title">
-          Read it and drop a comment!{' '}
-          <span {...placeholderAttrs('post.stats.comments')}>({total})</span>
-        </h2>
-        <p className="blog-comments-intro">
-          Check out what others are feeling in this post, have fun, and join the community!
-        </p>
-      </header>
-
-      <BlogCommentComposer />
-
-      <div className="blog-comments-list">
-        {comments.map((comment) => (
-          <BlogComment key={comment.id} comment={comment} onOpenHighlight={onOpenHighlight} />
-        ))}
-      </div>
-
-      {/* Announces each arriving block, so a screen reader is told the list grew
-          rather than being left to discover it. */}
-      <p className="sr-only" aria-live="polite">
-        {loading ? 'Loading more reactions…' : `${comments.length} reactions shown`}
-      </p>
-
-      {error ? (
-        <div className="blog-public-error" role="alert">
-          {error}
-        </div>
-      ) : null}
-
-      {hasMore ? (
-        <div className="blog-comments-foot">
-          <button
-            type="button"
-            className="blog-comments-all"
-            onClick={() => loadBlock(page + 1)}
-            aria-disabled={loading || undefined}
-          >
-            {loading ? 'Loading…' : 'Read all reactions'}
-          </button>
-        </div>
-      ) : null}
-    </section>
-  );
+    const controller = new AbortController();
+    setLoading(true); setError(''); setCurrent(empty); setPrevious(empty);
+    Promise.all([
+      fetchComments(slug, { page: 1, limit: COMMENTS_PER_BLOCK, placement: 'current', signal: controller.signal }),
+      fetchComments(slug, { page: 1, limit: COMMENTS_PER_BLOCK, placement: 'previous', signal: controller.signal }),
+    ]).then(([fresh, old]) => {
+      if (!controller.signal.aborted) { setCurrent(fresh); setPrevious(old); }
+    }).catch((failure) => { if (!controller.signal.aborted) setError(commentError(failure)); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [slug, revision]);
+  const more = async (placement) => {
+    const data = placement === 'current' ? current : previous;
+    setBusy(placement); setError('');
+    try {
+      const next = await fetchComments(slug, { page: data.page + 1, limit: COMMENTS_PER_BLOCK, placement });
+      const update = (value) => ({ ...next, comments: [...value.comments, ...next.comments] });
+      if (placement === 'current') setCurrent(update);
+      else setPrevious(update);
+    } catch (failure) { setError(commentError(failure)); }
+    finally { setBusy(''); }
+  };
+  const rows = (data) => data.comments.map((comment) => <BlogComment key={comment.id} comment={comment}
+    onOpenHighlight={onOpenHighlight} onCreated={onCreated} />);
+  return <section className="blog-comments" aria-labelledby="blog-comments-title">
+    <header className="blog-comments-head">
+      <h2 className="blog-comments-title" id="blog-comments-title">Read it and drop a comment! ({total})</h2>
+      <p className="blog-comments-intro">Check out what others are feeling in this post, have fun, and join the community!</p>
+    </header>
+    <BlogCommentComposer slug={slug} onCreated={onCreated} />
+    {loading && <p role="status">Loading comments…</p>}
+    {error && <p className="blog-public-error" role="alert">{error}</p>}
+    {!loading && !error && total === 0 && <p>Be the first to comment.</p>}
+    <div className="blog-comments-list">{rows(current)}</div>
+    {current.page < current.totalPages && <div className="blog-comments-foot"><button type="button" className="blog-comments-all"
+      disabled={Boolean(busy)} onClick={() => more('current')}>{busy === 'current' ? 'Loading…' : 'Read more comments'}</button></div>}
+    {previous.comments.length > 0 && <section className="blog-previous-comments" aria-label="Conversations without a current paragraph">
+      <h3>Earlier versions and unassigned conversations</h3>
+      <p>These conversations keep their original quote and context, even when the paragraph was removed or left unassigned.</p>
+      <div className="blog-comments-list">{rows(previous)}</div>
+      {previous.page < previous.totalPages && <button type="button" className="blog-comments-all" disabled={Boolean(busy)}
+        onClick={() => more('previous')}>{busy === 'previous' ? 'Loading…' : 'Read more earlier conversations'}</button>}
+    </section>}
+  </section>;
 }

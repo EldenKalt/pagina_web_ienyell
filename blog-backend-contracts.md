@@ -8,26 +8,28 @@ reconstruirlo desde los componentes. Todo lo que aparece aquí como "existe" est
 verificado contra el código; todo lo demás está marcado como pendiente de
 decisión.
 
-Estado a 1 de octubre de 2026: la interfaz está terminada y funciona sobre datos
-de maqueta. No hay ni un solo endpoint nuevo escrito.
+Estado a 2 de octubre de 2026: las páginas públicas del blog leen artículos,
+temas y series del backend. Comentarios, notas, resaltados y cursos mantienen
+sus módulos de maqueta independientes.
 
 ---
 
 ## 1. Cómo se apaga la fase de maqueta
 
-Tres interruptores reales, y dos declarados que todavía no hace nada apagar.
+Dos interruptores reales controlan comentarios y notas. Los flags de resaltados
+y cursos siguen declarados pero inertes.
 
 **Conectados** — cada uno vive junto a los datos que sustituye y su módulo
 documenta a qué endpoint va:
 
 | Flag | Archivo | Lo lee |
 |---|---|---|
-| `BLOG_USE_PLACEHOLDER_DATA` | `data/blogPlaceholderPosts.js` | `app/blog/page.js`, `/archive`, `/[slug]`, `/series/[slug]`, `lib/articleHtml.js` |
 | `BLOG_USE_PLACEHOLDER_COMMENTS` | `data/blogPlaceholderComments.js` | `lib/comments.js` |
 | `BLOG_USE_PLACEHOLDER_NOTES` | `data/blogPlaceholderNotes.js` | `lib/notes.js` |
 
-Se pueden apagar de uno en uno. Los componentes no saben de dónde vienen los
-datos: el cambio es de rama dentro del módulo, no de interfaz.
+Las cuatro páginas públicas (`/blog`, `/blog/archive`, `/blog/[slug]` y
+`/blog/series/[slug]`) ya consultan el backend. Home y archive obtienen temas
+publicados de `GET /api/blog/topics`.
 
 **Declarados pero inertes** — nadie los lee todavía, porque no hay ninguna rama
 alternativa a la que ramificar:
@@ -42,9 +44,6 @@ desde `BlogPostView`, y los cursos igual. Al escribir sus endpoints hay que
 crear el módulo intermedio —con la forma de `lib/comments.js`— y hacer que el
 flag signifique algo. Apagarlos ahora mismo no cambia nada.
 
-**Aviso: apagar `BLOG_USE_PLACEHOLDER_DATA` rompe la página de post a propósito.**
-Ver §6.
-
 ---
 
 ## 2. Lo que ya existe
@@ -55,6 +54,8 @@ Verificado en `backend/`.
 
 ```
 GET    /api/blog           listPublic    público
+GET    /api/blog/topics    listPublicTopics    público
+GET    /api/blog/series/:slug getPublicSeries   público
 GET    /api/blog/:slug     getPost       público
 GET    /api/blog/admin     listAdmin     ADMIN | COLABORADOR + feature "blog"
 POST   /api/blog           createPost    idem
@@ -65,7 +66,9 @@ DELETE /api/blog/:id       deletePost    idem
 
 **`model BlogPost`** tiene: `id, slug, title, excerpt?, coverUrl?, content,
 isPublished, publishedAt?, authorId, author, keywords[], relatedPostIds[],
-relatedProductIds[], createdAt, updatedAt`.
+relatedProductIds[], seriesId?, series?, createdAt, updatedAt`. `BlogSeries`
+guarda nombre, slug único, resumen, categoría, objetivo, audiencia y relaciones
+con los posts de apertura y los posts destacados.
 
 **`getPost` ya devuelve** `previousPost`, `nextPost` y `relatedPosts` además del
 post. El mock los emula con la misma forma.
@@ -87,26 +90,24 @@ express-validator; no lo introduzcas solo para esto.
 
 ---
 
-## 3. Campos que la interfaz usa y el modelo no tiene
-
-Ninguno de estos existe hoy. Están marcados en el mock con el comentario
-`(Expected dynamic field: …)` o equivalente.
+## 3. Metadatos reales del artículo y del autor
 
 **Sobre el post:**
 
 | Campo | Para qué | Nota |
 |---|---|---|
-| `readingTime` | "8 min read" en la cabecera | Derivable de `content`. Decidir si se calcula o se guarda. Ya anotado como TODO en `data/blogPlaceholderPosts.js` |
-| `seriesName` | "This post is part of the series:", navegación de secuencia, `/blog/series/[slug]` | Hoy es un string plano. Si se vuelve una relación real, cambia `getSequenceNav()` y nada más de la interfaz |
-| `stats.{likes,comments,shares}` | Barra de acciones, tarjetas, panel de herramientas | Ver §4.5 |
+| `readingTime` | "8 min read" en la cabecera y tarjetas | Estimación al consultar el texto actual: 200 palabras/minuto, redondeo hacia arriba. No mide vídeos. El texto completo se excluye de los listados. |
+| `seriesName`, `seriesSlug` | Enlaces y navegación de series | Derivados de la relación `BlogSeries` existente. |
+| `stats.{likes,comments,shares}` | Barra de acciones, tarjetas, panel de herramientas | Contadores reales de F; ver §4.6. |
 
-**Sobre el autor** (`model User` no tiene ninguno):
+**Sobre el autor:** `pronouns` y `socialLinks` se guardan en G; `bio` y
+`patreonUrl` se añaden en I. La API pública adapta `socialLinks` a `socials[]`
+sin enviar correo ni datos privados. Biografía y Patreon se editan desde el
+perfil propio solo con permiso de publicar en el blog. La biografía admite
+1.500 caracteres y Patreon exige HTTPS y dominio `patreon.com`.
 
-`pronouns`, `bio`, `patreonUrl`, `readers`, `followers`, `socials[]`.
-
-Los usa `BlogPostAuthor` y la cabecera. `readers` y `followers` están marcados
-con `data-placeholder` en desarrollo porque son cifras inventadas: decidir si son
-reales o se quitan antes de publicar.
+Las cifras `readers` y `followers` se han retirado de la ficha pública hasta
+definir una medición real. El botón Patreon se muestra solo si existe un enlace.
 
 ---
 
@@ -118,28 +119,50 @@ se repiten para tenerlo todo junto, pero **el módulo manda** si divergen.
 ### 4.1 Comentarios — `lib/comments.js`
 
 ```
-GET /api/blog/:slug/comments?page=&limit=
-  200 { comments: [...], total, page, totalPages }
+GET /api/blog/:slug/comments?page=&limit=&paragraph=&placement=
+  200 { comments: [...], total, filteredTotal, page, totalPages }
+GET /api/blog/:slug/comment-locations
+  200 { paragraphs: [{ paragraphId, count }], previousCount, generalCount, total }
+GET /api/comments/:id/replies
+  200 { replies: [...] }
+POST /api/blog/:slug/comments
+  201 { comment }  { body, anchor?, paragraphId? }
+POST /api/comments/:id/replies
+  201 { reply }    { body }
+GET /api/blog/admin/:id/comment-threads?page=&limit=
+  200 { paragraphs, threads, total, page, totalPages }  editorial
+POST /api/blog/admin/:id/comment-threads/reassign
+  200 { reassigned }  { threadIds, paragraphId|null }  editorial
 ```
 
 - `total` cuenta también las respuestas, porque es lo que muestra la cabecera
   ("Read it and drop a comment! (40)"). `comments.length` son las filas de primer
   nivel de esa página.
-- La interfaz carga de 3 en 3 (`COMMENTS_PER_BLOCK`) y **añade**, no reemplaza:
-  "Read all reactions" pide el bloque siguiente.
+- La lista del artículo carga de 3 en 3 (`COMMENTS_PER_BLOCK`) y **añade**, no reemplaza:
+  «Read more comments» pide el bloque siguiente. Las respuestas se cargan al abrir cada hilo.
 - Cada comentario lleva un `highlight` opcional: el fragmento del artículo al que
   está anclado. Es el campo que conecta el hilo con el sistema de anotaciones.
-- Faltan por definir: crear, responder, dar like y reportar. La interfaz los tiene
-  dibujados y bloqueados sin sesión.
+- Crear y responder exige sesión; cada texto admite hasta 2.500 caracteres y la
+  interfaz muestra el contador. Dar like y reportar siguen pendientes.
+- Al eliminar la cuenta de quien comentó, el texto y las respuestas permanecen;
+  el nombre se sustituye por «Reader». Lo mismo sucede con el nombre del actor
+  editorial en el historial de reasignaciones.
+- El párrafo se valida en servidor contra el cuerpo actual. Una corrección conserva
+  su identificador; si se elimina, el hilo completo aparece al final con su cita
+  y copia del párrafo anterior. La reasignación editorial de uno o varios hilos
+  es atómica y registra actor y destino. «Dejar sin asignar» conserva respuestas.
+- Las marcas de resaltado personal nunca se envían en estas rutas. Los iconos de
+  párrafo se calculan con el comentario raíz y sus respuestas, sin contar a una
+  persona dos veces por selecciones superpuestas.
 
-**Pendiente**: `GET /api/blog` tendrá que aceptar `?series=` además de `?topic=`
-y `?search=`. El archive ya los manda los tres cuando el flag de maqueta esté
-apagado; hoy filtra en cliente sobre la lista local. Como `seriesName` no es
-todavía una columna, eso depende de §3.
+`GET /api/blog` accepts `?series=` alongside `?topic=` and `?search=`. All three
+filters narrow the same query used for rows and their total. `GET
+/api/blog/series/:slug` returns the series' editorial metadata and its published
+posts in reading order.
 
-**Pendiente**: el panel de un fragmento filtra hoy por texto exacto del
-`highlight` en el cliente. Debe filtrar por **id de anotación** en el servidor
-(`?anchor=`), que es lo que `BlogHighlightPanel` ya documenta.
+El panel público de conversación se filtra por identificador estable de párrafo.
+La cita concreta se muestra dentro de cada comentario; el marcado personal no
+define la identidad de una conversación pública.
 
 ### 4.2 Notas — `lib/notes.js`
 
@@ -154,13 +177,15 @@ Todos autenticados y acotados al lector con sesión. Una nota es privada hasta q
 `isPublic` diga lo contrario, y listar las de otra persona es una petición de
 perfil, no esta.
 
-**Las notas y los comentarios son objetos distintos**, aunque una nota publicada
-se renderice como un comentario. Dónde aparece cada cosa:
+**Las notas y los comentarios son objetos distintos.** Una nota publicada aparece
+en la sección «Notas públicas» del artículo, separada de la conversación. Su
+integración en el perfil se realiza en el bloque G.
 
 | | nota privada | nota publicada | comentario |
 |---|---|---|---|
-| hilo público del post | no | sí | sí |
-| perfil del autor | sí | sí | sí |
+| hilo público del post | no | no | sí |
+| «Notas públicas» del artículo | no | sí | no |
+| perfil del autor (G) | sí | sí | sí |
 | margen de su párrafo | sí | sí | no |
 | panel del resaltado | no | no | sí |
 
@@ -210,18 +235,44 @@ primera aparición. Está anotado en `data/blogPlaceholderNotes.js`.
 
 ### 4.4 El perfil del lector
 
-Ningún endpoint existe. Lo que la página ya consume, y de dónde tendrá que
-venir:
+El perfil propio y el público usan estas rutas paginadas:
 
-| Sección | Fuente que hará falta |
+```
+GET   /api/users/me/profile
+PATCH /api/users/me/profile                 { handle?, pronouns?, socialLinks?, bio?, patreonUrl? }
+GET   /api/users/me/notes?page=&limit=
+GET   /api/users/me/comments?page=&limit=
+GET   /api/users/me/annotations?page=&limit=
+GET   /api/users/me/wishlist?page=&limit=
+GET   /api/users/me/wishlist/search?q=
+PUT   /api/users/me/wishlist/:productId
+DELETE /api/users/me/wishlist/:productId
+GET   /api/reader-profiles/:handle
+GET   /api/reader-profiles/:handle/notes?page=&limit=
+GET   /api/reader-profiles/:handle/comments?page=&limit=
+```
+
+Las rutas `/me` exigen sesión y nunca aceptan un ID de otro lector. La URL
+pública usa un alias elegido por la persona, no el ID numérico. El alias se puede
+cambiar; las URL antiguas redirigen al nuevo. La vista «What others see» llama a
+las mismas consultas públicas con `_self` para aplicar la privacidad en el
+servidor incluso antes de elegir un alias.
+
+El perfil público muestra el nombre, pronombres y enlaces HTTPS que la persona
+guardó, más sus comentarios y notas expresamente publicadas sobre posts
+disponibles. No envía correo, notas privadas, resaltados, lista de deseos ni
+artículos guardados. El perfil propio sí puede leer sus escritos de posts
+retirados; los muestra sin enlace al artículo. Las listas se paginan.
+
+| Sección | Estado en G |
 |---|---|
-| Notas | `GET /api/users/me/notes` — todas las del lector, de todos los posts, no las de uno solo como §4.2 |
-| Comentarios | `GET /api/users/me/comments`, con las respuestas y conversaciones derivadas |
-| Resaltados | `GET /api/users/me/annotations`, con el post de cada uno unido — la anotación no lo lleva hoy |
-| Leer más tarde | El listado de §4.5 |
-| Lista de deseos | Tabla nueva. `model Product` existe; una lista de deseos no |
-| Redes del lector | Campos nuevos en `User`, igual que `pronouns` |
-| Puntos | Sistema de gamificación. **Las reglas no están decididas**: ni cuántos puntos da cada acción ni qué se canjea |
+| Notas | Lectura propia y pública real, de todos los posts |
+| Comentarios | Lectura propia y pública real, con respuestas conservadas |
+| Resaltados | Solo vista propia; cada marca incluye el post cuando existe |
+| Leer más tarde | Lista privada de E |
+| Lista de deseos | Tabla privada, búsqueda de productos activos, añadir y quitar |
+| Redes y pronombres | Campos propios editables y lectura pública controlada |
+| Puntos | Sin cifra inventada; reglas de obtención y canje pendientes |
 
 El perfil es **por niveles**: comprar un curso, pedir un servicio o encargar un
 producto desbloquea paneles propios —descargas, envíos, facturación—. Nada de
@@ -242,37 +293,58 @@ antes que eso dos decisiones:
 - **Si el lector puede ocultarlo.** Es la sección más expuesta del perfil
   público, y la que más probablemente alguien quiera apagar.
 
-**Perfiles públicos de otras personas, decidido y sin construir.** La URL usará
-un **handle elegido por la persona** (`/users/lector`), no el id numérico, que
-expondría cuántas cuentas hay y cómo de nueva es cada una. `model User` no tiene
-ese campo: hace falta una columna única, validación de formato, y decidir si se
-puede cambiar y qué pasa con la URL anterior si se cambia.
+**Perfiles públicos de otras personas.** La URL usa el alias elegido por la
+persona (`/users/lector`). Cambiarlo conserva las URL antiguas como redirecciones.
+La lectura pública incluye solo comentarios y notas publicadas de artículos
+disponibles. El historial de lecturas sigue pendiente de las decisiones anteriores.
 
-**Lo que el perfil NO es**: no hay mensajería privada ni amigos. Otras personas
-ven qué ha leído alguien, sus comentarios y sus notas públicas, y nada más. Los
-lectores no suben contenido ni publican nada.
+**Lo que el perfil NO es**: no hay mensajería privada ni amigos. Los lectores
+no suben contenido ni publican posts.
 
 ### 4.5 Guardar un post
 
-No hay endpoint. La interfaz tiene el marcador en dos sitios —la barra de
-acciones y el panel de herramientas— compartiendo un único estado, y no persiste.
-Hace falta un listado para el perfil.
+```
+GET    /api/blog/saved?page=&limit=  200 { posts, total, page, totalPages }
+GET    /api/blog/:slug/save        200 { saved }
+PUT    /api/blog/:slug/save        200 { saved: true }
+DELETE /api/blog/:slug/save        200 { saved: false }
+```
+
+Todas estas rutas requieren sesión. `PUT` y `DELETE` son repetibles sin crear
+duplicados ni errores. Un post retirado no se ofrece en la lista pública de
+«Leer más tarde»; su marca se conserva por si vuelve a publicarse. El botón de
+la cabecera, el del pie y «Keep» comparten el mismo estado persistido. La lista
+privada del perfil se pagina y no usa artículos de demostración.
 
 ### 4.6 Reacciones y contadores
 
-`stats.{likes, comments, shares}` se muestran en la cabecera, bajo el artículo,
-en el panel de herramientas y en cada tarjeta de recomendación. Hoy son
-inventados y **optimistas**: pulsar no persiste nada.
+```
+GET    /api/blog/:slug/reactions  200 { likes, liked, shares }
+PUT    /api/blog/:slug/like       200 { likes, liked: true }
+DELETE /api/blog/:slug/like       200 { likes, liked: false }
+POST   /api/blog/:slug/share      200 { shares }
+PUT    /api/comments/:id/like     200 { likes, liked: true }
+DELETE /api/comments/:id/like     200 { likes, liked: false }
+```
 
-Decisiones pendientes: si "shares" se cuenta de verdad o se quita, y si los likes
-son por usuario (requiere una tabla de reacciones) o un contador suelto.
+Cada cuenta puede dar un «me gusta» una vez a un artículo o comentario y
+retirarlo. La lectura de contadores es pública; escribir reacciones exige
+sesión. Las rutas de comentarios no permiten reaccionar si el post se retiró o
+desactivó sus comentarios. `shares` cuenta acciones confirmadas por el navegador:
+compartir desde el sistema o copiar el enlace. No demuestra que otra persona lo
+haya abierto. El endpoint de compartir tiene límite por IP.
+
+`stats.{likes, comments, shares}` se obtienen de la base de datos y aparecen en
+el artículo y sus recomendaciones. Los comentarios cuentan raíces y respuestas;
+los «me gusta» de comentarios se leen junto a cada bloque paginado. Escuchar el
+artículo continúa deshabilitado porque aún no hay narración.
 
 ### 4.7 Cursos
 
-**No existen como tipo de contenido**: no hay modelo, ni ruta, ni admin. El
-enlace "Learn" de la cabecera es un `href="#"`. El bloque está maquetado contra
-`data/blogPlaceholderCourses.js`, las tarjetas llevan `href: null` a propósito y
-no se renderizan como enlaces.
+**Pendientes de definir:** no hay modelo, ruta ni administración de cursos.
+El enlace «Learn» y las tarjetas de ejemplo bajo el artículo se han ocultado.
+La maqueta se conserva en `data/blogPlaceholderCourses.js`, pero ya no se
+consume desde las páginas públicas.
 
 Los campos que la tarjeta usa: `title, excerpt, coverUrl, keywords[], launchedAt,
 updatedAt, stats, badge, href`.
@@ -283,37 +355,25 @@ updatedAt, stats, badge, href`.
 
 | Ruta | Estado |
 |---|---|
-| `/blog` | Server Component, lee del mock, TODO apuntando a `GET /api/blog` |
-| `/blog/archive` | Componente cliente, lee del mock |
-| `/blog/[slug]` | **Server Component**, ver §6 |
-| `/blog/series/[slug]` | Componente cliente, serie derivada de `seriesName` |
+| `/blog` | Server Component, lee `GET /api/blog` y `GET /api/blog/topics` |
+| `/blog/archive` | Componente cliente, lista y filtra con `GET /api/blog` y `GET /api/blog/topics` |
+| `/blog/[slug]` | **Server Component**, lee `GET /api/blog/:slug`, ver §6 |
+| `/blog/series/[slug]` | Componente cliente, lee `GET /api/blog/series/:slug` |
 | `/blog/archive?topic=` | Funciona. El archive lo lee con `useSearchParams` y lo enlazan los chips del rail y de la serie |
-| `/blog/archive?series=` | Funciona. Compone con `?topic=` y con la búsqueda, y lo enlaza la página de serie como "Search within this series". **El parámetro ya se envía a `GET /api/blog`, que todavía no lo entiende** |
-| `/users/profile` | Construido, vista privada con previsualización de la pública. Exige sesión y redirige a `/users/login` sin ella. **Sin ningún endpoint detrás** |
+| `/blog/archive?series=` | Filtra desde el backend y compone con `?topic=` y la búsqueda. |
+| `/users/profile` | Perfil propio conectado a las rutas `/api/users/me/*`; exige sesión y ofrece previsualización pública. |
+| `/users/[handle]` | Perfil público conectado a `/api/reader-profiles/:handle`, con redirección de alias anteriores. |
 
 ---
 
-## 6. El riesgo que hay que resolver antes de conectar nada
+## 6. Saneado del HTML del artículo
 
-**El HTML del blog se guarda sin sanear.**
-
-`createPost` y `updatePost` guardan `content` tal como llega del editor. Mientras
-el único autor seas tú, es un riesgo teórico. Deja de serlo en cuanto escriba un
-`COLABORADOR`, y la página de post ahora se renderiza en servidor, lo que
-convierte un HTML malicioso en XSS almacenado servido desde tu propio dominio.
-
-Por eso `lib/articleHtml.js` **lanza un error** si `BLOG_USE_PLACEHOLDER_DATA`
-está apagado: se niega a renderizar HTML que nadie ha limpiado, en vez de servir
-lo que haya en la base de datos.
-
-Dos formas de levantar ese rechazo, por orden de preferencia:
-
-1. **Sanear al guardar, en el backend.** El camino de lectura no necesita nada
-   más, y una migración limpia lo ya guardado una vez. Arregla además el agujero
-   para cualquier otro consumidor de esa columna.
-2. **Sanear en el servidor al leer**, con `isomorphic-dompurify` o jsdom.
-   Funciona, pero corre un parser de HTML completo en cada render de cada post
-   para algo que debería ocurrir una vez por guardado.
+`createPost` y `updatePost` limpian `content` en el backend con DOMPurify y
+jsdom, usando las extensiones de `ARTICLE_HTML_ALLOWANCES` en
+`lib/articleHtml.js`. Una revisión de las filas existentes encontró cero posts
+en la base configurada. La página de post solo confía en el HTML de la API tras
+el saneado al guardar; `sanitizeArticleHtml` sigue rechazando cualquier HTML
+que no se marque explícitamente con una fuente confiable.
 
 La lista de lo que el editor puede emitir está en
 `ARTICLE_HTML_ALLOWANCES` (`lib/articleHtml.js`): `iframe` como etiqueta extra, y
@@ -345,11 +405,7 @@ sobre `[slug]`, así que un post con ese slug sería inalcanzable. Está anotado
 
 ## 8. Resumen de lo que falta decidir
 
-- Si `readingTime` se calcula o se guarda.
-- Si `seriesName` se convierte en relación.
-- Qué campos de autor son reales y cuáles se quitan (`readers`, `followers`).
-- Si los likes son por usuario o un contador.
-- Si "shares" se cuenta.
+- Cómo medir lectores y seguidores si se decide añadir esos contadores.
 - Si guardar un post desde una tarjeta de recomendación entra en alcance.
 - Si los cursos llegan a existir.
 - Migraciones sí o no, antes de crear tablas con datos de lectores.

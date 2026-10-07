@@ -17,6 +17,7 @@ import CmsCoverUpload from '../../../../../components/cms/CmsCoverUpload';
 import CmsSidebarSection from '../../../../../components/cms/CmsSidebarSection';
 import CmsKeywordsInput from '../../../../../components/cms/CmsKeywordsInput';
 import CmsRelatedSelector from '../../../../../components/cms/CmsRelatedSelector';
+import BlogThreadManager from '../../../../../components/cms/BlogThreadManager';
 
 const EMPTY_FORM = {
   title: '',
@@ -28,6 +29,8 @@ const EMPTY_FORM = {
   publishedAt: null,
   keywords: [],
   relatedPostIds: [],
+  notesEnabled: true,
+  commentsEnabled: true,
 };
 
 function postToForm(post) {
@@ -42,6 +45,8 @@ function postToForm(post) {
     publishedAt: post.publishedAt || null,
     keywords: Array.isArray(post.keywords) ? post.keywords : [],
     relatedPostIds: Array.isArray(post.relatedPostIds) ? post.relatedPostIds : [],
+    notesEnabled: post.notesEnabled !== false,
+    commentsEnabled: post.commentsEnabled !== false,
   };
 }
 
@@ -50,6 +55,8 @@ function createPayload(source) {
     title: source.title,
     slug: source.slug || slugifyCmsValue(source.title, 'post', 60),
     content: source.content,
+    notesEnabled: source.notesEnabled,
+    commentsEnabled: source.commentsEnabled,
     excerpt: source.excerpt,
     coverUrl: source.coverUrl,
     keywords: source.keywords,
@@ -314,6 +321,13 @@ export default function BlogEditorPage() {
 
         {sidebarOpen && (
           <aside className="cms-editor-sidebar">
+            <CmsSidebarSection title="Reader participation">
+              <label><input type="checkbox" checked={form.notesEnabled} onChange={(event) => updateField('notesEnabled', event.target.checked)} /> Enable notes</label>
+              <label><input type="checkbox" checked={form.commentsEnabled} onChange={(event) => updateField('commentsEnabled', event.target.checked)} /> Enable comments</label>
+            </CmsSidebarSection>
+            {postId && <CmsSidebarSection title="Comment threads" defaultOpen={false}>
+              <BlogThreadManager postId={postId} prepare={persistDraft} />
+            </CmsSidebarSection>}
             <CmsSidebarSection title="Cover image">
               <CmsCoverUpload
                 coverUrl={form.coverUrl}

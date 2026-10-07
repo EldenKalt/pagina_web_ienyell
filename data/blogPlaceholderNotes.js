@@ -35,7 +35,7 @@
  * long enough to exercise the card.
  */
 
-export const BLOG_USE_PLACEHOLDER_NOTES = true;
+export const BLOG_USE_PLACEHOLDER_NOTES = false;
 
 const READER = { name: 'enyell', pronouns: 'she/her', avatarUrl: '/recursos/profile_picture.webp' };
 
