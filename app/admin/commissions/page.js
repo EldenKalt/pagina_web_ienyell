@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { authFetch, getApiBase } from '../../../lib/authHelper';
 
@@ -12,9 +12,7 @@ const STATUS_OPTIONS = [
   ['closed', 'Closed'],
 ];
 
-function listFromResponse(response) {
-  return Array.isArray(response) ? response : (response?.commissions || []);
-}
+const pageSize = 20;
 
 function formatDate(value) {
   if (!value) return 'No date recorded';
@@ -55,44 +53,57 @@ export default function CommissionsAdminPage() {
   const [requests, setRequests] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [statusFilter, setStatusFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    let cancelled = false;
+    const trimmedQuery = query.trim();
+    if (trimmedQuery === debouncedQuery) return;
+    const timer = setTimeout(() => {
+      setDebouncedQuery(trimmedQuery);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [query, debouncedQuery]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+    if (debouncedQuery.trim()) params.set('q', debouncedQuery.trim());
+    if (statusFilter !== 'all') params.set('status', statusFilter);
 
     async function loadRequests() {
       setLoading(true);
       setError('');
       try {
-        const response = await authFetch('/api/commissions');
-        if (!cancelled) setRequests(listFromResponse(response));
+        const response = await authFetch(`/api/commissions?${params}`, { signal: controller.signal });
+        if (!controller.signal.aborted) {
+          const legacy = Array.isArray(response);
+          setRequests(legacy ? response : (response?.commissions || []));
+          setTotal(legacy ? response.length : response.total);
+          setPage(legacy ? 1 : response.page);
+          setTotalPages(legacy ? 1 : response.totalPages);
+        }
       } catch (requestError) {
-        if (!cancelled) setError(requestError?.data?.error || 'Requests could not be loaded.');
+        if (!controller.signal.aborted && requestError?.name !== 'AbortError') {
+          setError(requestError?.data?.error || 'Requests could not be loaded.');
+        }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     }
 
     loadRequests();
-    return () => { cancelled = true; };
-  }, []);
+    return () => controller.abort();
+  }, [page, debouncedQuery, statusFilter]);
 
-  const filteredRequests = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    return requests.filter((request) => {
-      const status = String(request.status || 'pending').toLowerCase();
-      const matchesStatus = statusFilter === 'all' || status === statusFilter;
-      if (!matchesStatus) return false;
-      if (!normalizedQuery) return true;
-      return [request.id, requestName(request), requestEmail(request), requestType(request)]
-        .some((value) => String(value || '').toLowerCase().includes(normalizedQuery));
-    });
-  }, [query, requests, statusFilter]);
-
-  const selectedRequest = requests.find((request) => request.id === selectedId) || filteredRequests[0] || null;
+  const selectedRequest = requests.find((request) => request.id === selectedId) || requests[0] || null;
 
   async function updateStatus(request, status) {
     setSavingId(request.id);
@@ -119,7 +130,7 @@ export default function CommissionsAdminPage() {
           <h1>Requests worth making space for.</h1>
           <p>Review the briefs sent through the commission flow and keep every answer in one place.</p>
         </div>
-        <span className="ienyell-admin-count">{requests.length} total</span>
+        <span className="ienyell-admin-count">{total} total</span>
       </header>
 
       <div className="ienyell-admin-toolbar">
@@ -130,12 +141,15 @@ export default function CommissionsAdminPage() {
             className="ienyell-admin-input"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search by name, email, or request…"
+            placeholder="Search by name, email, or request ID…"
           />
         </label>
         <label className="ienyell-admin-select-label">
           <span>Status</span>
-          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+          <select value={statusFilter} onChange={(event) => {
+            setStatusFilter(event.target.value);
+            setPage(1);
+          }}>
             <option value="all">All requests</option>
             {STATUS_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
@@ -146,12 +160,12 @@ export default function CommissionsAdminPage() {
 
       {loading ? (
         <div className="ienyell-admin-empty">Loading requests…</div>
-      ) : !filteredRequests.length ? (
+      ) : !requests.length ? (
         <div className="ienyell-admin-empty">No requests match this view yet.</div>
       ) : (
         <div className="ienyell-admin-request-layout">
           <div className="ienyell-admin-request-list" aria-label="Commission requests">
-            {filteredRequests.map((request) => {
+            {requests.map((request) => {
               const active = selectedRequest?.id === request.id;
               const status = String(request.status || 'pending').toLowerCase();
               return (
@@ -223,6 +237,13 @@ export default function CommissionsAdminPage() {
           ) : null}
         </div>
       )}
+      {totalPages > 1 ? (
+        <nav className="ienyell-admin-pager" aria-label="Pagination">
+          <button type="button" disabled={loading || page === 1} onClick={() => setPage((current) => current - 1)}>Previous</button>
+          <span>Page {page} of {totalPages}</span>
+          <button type="button" disabled={loading || page >= totalPages} onClick={() => setPage((current) => current + 1)}>Next</button>
+        </nav>
+      ) : null}
     </section>
   );
 }
