@@ -23,7 +23,7 @@ export default function BlogAdminPage() {
       setError('');
 
       try {
-        const data = await authFetch('/api/blog/admin');
+        const data = await authFetch('/api/blog/admin?view=summary');
         if (!cancelled) {
           setPosts(Array.isArray(data?.posts) ? data.posts : []);
         }
