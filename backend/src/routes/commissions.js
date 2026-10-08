@@ -5,6 +5,7 @@ const multer = require('multer');
 const path = require('path');
 const prisma = require('../lib/prisma');
 const { authenticateToken, authorizeRole } = require('../middleware/auth');
+const { parsePage, parsePageSize, parseSearch, buildPageMeta } = require('../utils/adminListQuery');
 
 const router = express.Router();
 const UPLOAD_ROOT = process.env.COMMISSIONS_UPLOAD_ROOT || path.join(__dirname, '../../uploads');
@@ -163,10 +164,43 @@ router.post('/', rateLimit, (req, res, next) => {
     }
   });
 });
-router.get('/', ...adminOnly, async (_req, res, next) => {
+router.get('/', ...adminOnly, async (req, res, next) => {
+  if (!['page', 'pageSize', 'q', 'status'].some((key) => Object.hasOwn(req.query, key))) {
+    try {
+      const rows = await prisma.commissionRequest.findMany({ orderBy: { receivedAt: 'desc' } });
+      return res.json(rows.map(toCommissionResponse));
+    } catch (error) { return next(storageError(error)); }
+  }
+
+  const page = parsePage(req.query.page);
+  const pageSize = parsePageSize(req.query.pageSize);
+  const q = parseSearch(req.query.q);
+  const where = {};
+  if (Object.hasOwn(req.query, 'status')) {
+    if (typeof req.query.status !== 'string') {
+      return res.status(400).json({ error: 'Invalid commission status.' });
+    }
+    const status = req.query.status.trim().toLowerCase();
+    if (status && status !== 'all') {
+      if (!COMMISSION_STATUSES.has(status)) {
+        return res.status(400).json({ error: 'Invalid commission status.' });
+      }
+      where.status = status;
+    }
+  }
+  if (q) {
+    where.OR = ['id', 'name', 'email'].map((field) => ({ [field]: { contains: q, mode: 'insensitive' } }));
+  }
   try {
-    const rows = await prisma.commissionRequest.findMany({ orderBy: { receivedAt: 'desc' } });
-    return res.json(rows.map(toCommissionResponse));
+    const orderBy = [{ receivedAt: 'desc' }, { id: 'desc' }];
+    const skip = (page - 1) * pageSize;
+    const take = pageSize;
+    const [total, rows] = await Promise.all([
+      prisma.commissionRequest.count({ where }),
+      prisma.commissionRequest.findMany({ where, orderBy, skip, take }),
+    ]);
+    res.set('Cache-Control', 'no-store');
+    return res.json({ commissions: rows.map(toCommissionResponse), ...buildPageMeta(total, page, pageSize) });
   } catch (error) { return next(storageError(error)); }
 });
 router.get('/:id', ...adminOnly, async (req, res, next) => {

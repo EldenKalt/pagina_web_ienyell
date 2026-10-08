@@ -69,12 +69,15 @@ function createPayload(source) {
 export default function BlogEditorPage() {
   const params = useParams();
   const router = useRouter();
+  const isNew = !params?.id;
   const routeId = params?.id ? Number(params.id) : null;
 
   const [form, setForm] = useState(EMPTY_FORM);
   const [postId, setPostId] = useState(null);
   const [allPosts, setAllPosts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [saveStatus, setSaveStatus] = useState('idle');
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
@@ -85,60 +88,62 @@ export default function BlogEditorPage() {
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
 
     async function loadEditor() {
+      setLoadFailed(false);
       setLoading(true);
       setSaveStatus('idle');
 
-      try {
-        const data = await authFetch('/api/blog/admin');
-        const availablePosts = Array.isArray(data?.posts) ? data.posts : [];
-        if (cancelled) return;
-        setAllPosts(availablePosts);
+      const validId = Number.isInteger(routeId) && routeId > 0;
+      const requests = [authFetch('/api/blog/admin?view=summary', { signal: controller.signal })];
+      if (!isNew && validId) {
+        requests.push(authFetch(`/api/blog/admin/${routeId}`, { signal: controller.signal }));
+      }
+      const results = await Promise.allSettled(requests);
+      if (cancelled || results.some((result) => (
+        result.status === 'rejected' && result.reason?.name === 'AbortError'
+      ))) return;
 
-        if (!routeId) {
-          formRef.current = EMPTY_FORM;
-          postIdRef.current = null;
-          setForm(EMPTY_FORM);
-          setPostId(null);
+      const [summaryResult, detailResult] = results;
+      setAllPosts(summaryResult.status === 'fulfilled' ? summaryResult.value?.posts ?? [] : []);
+
+      if (isNew) {
+        formRef.current = EMPTY_FORM;
+        postIdRef.current = null;
+        setForm(EMPTY_FORM);
+        setPostId(null);
+      } else if (!validId || detailResult.status === 'rejected') {
+        setLoadFailed(true);
+      } else {
+        const fullPost = detailResult.value;
+        if (Number(fullPost?.id) !== routeId || (
+          typeof fullPost?.content !== 'string' && typeof fullPost?.content?.html !== 'string'
+        )) {
+          setLoadFailed(true);
+          setLoading(false);
           return;
         }
-
-        const postSummary = availablePosts.find((post) => Number(post.id) === routeId);
-        if (!postSummary) throw new Error('Post not found.');
-
-        let fullPost = postSummary;
-        try {
-          fullPost = await authFetch(`/api/blog/${postSummary.slug}`);
-        } catch (requestError) {
-          if (requestError?.status !== 404) throw requestError;
-        }
-        if (cancelled) return;
-
         const nextForm = postToForm(fullPost);
         formRef.current = nextForm;
         postIdRef.current = Number(fullPost.id);
         setForm(nextForm);
         setPostId(Number(fullPost.id));
-      } catch (requestError) {
-        if (!cancelled) {
-          console.error('Blog editor load failed:', requestError);
-          setSaveStatus('error');
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
       }
+      setLoading(false);
     }
 
     loadEditor();
 
     return () => {
       cancelled = true;
+      controller.abort();
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [routeId]);
+  }, [routeId, isNew, reloadKey]);
 
   const persistDraft = useCallback((overrides = {}) => {
+    if (!isNew && postIdRef.current == null) return Promise.resolve(null);
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
@@ -196,7 +201,7 @@ export default function BlogEditorPage() {
       .then(save);
     savePromiseRef.current = queuedSave;
     return queuedSave;
-  }, [router]);
+  }, [router, isNew]);
 
   const scheduleSave = useCallback(() => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -272,6 +277,18 @@ export default function BlogEditorPage() {
       <main className="cms-editor-page">
         <div className="blog-loading" role="status">
           <span className="blog-loading-spinner" /> Loading…
+        </div>
+      </main>
+    );
+  }
+
+  if (loadFailed) {
+    return (
+      <main className="cms-editor-page">
+        <div className="blog-loading" role="alert">
+          <p>This post could not be loaded. Nothing has been changed.</p>
+          <button type="button" onClick={() => setReloadKey((value) => value + 1)}>Retry</button>
+          <Link href="/admin/blog" className="cms-back-button">← Blog</Link>
         </div>
       </main>
     );

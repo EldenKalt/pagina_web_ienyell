@@ -5,6 +5,7 @@ const {
   getPublicSeries,
   getPost,
   listAdmin,
+  getAdminPost,
   createPost,
   updatePost,
   togglePublish,
@@ -44,6 +45,7 @@ router.get("/", listPublic);
 router.get("/topics", listPublicTopics);
 router.get("/series/:slug", getPublicSeries);
 router.get("/admin", ...editorAccess, listAdmin);
+router.get("/admin/:id", ...editorAccess, getAdminPost);
 router.post("/", ...editorAccess, createPost);
 router.put("/:id", ...editorAccess, updatePost);
 router.patch("/:id/publish", ...editorAccess, togglePublish);
