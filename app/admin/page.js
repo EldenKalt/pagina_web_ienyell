@@ -6,14 +6,6 @@ import Link from 'next/link';
 import { useAuth } from '../../context/AuthContext';
 import { authFetch } from '../../lib/authHelper';
 
-function listFromResponse(response, key) {
-  return Array.isArray(response) ? response : (response?.[key] || []);
-}
-
-function countPublished(items) {
-  return items.filter((item) => item.isPublished).length;
-}
-
 function formatDate(value) {
   if (!value) return 'Recently';
   const date = new Date(value);
@@ -21,50 +13,38 @@ function formatDate(value) {
   return new Intl.DateTimeFormat('en', { dateStyle: 'medium' }).format(date);
 }
 
-function requestName(request) {
-  return request?.contact?.name || request?.name || 'Unnamed request';
-}
-
 export default function AdminDashboardPage() {
   const { user } = useAuth();
-  const [overview, setOverview] = useState({
-    projects: [], posts: [], requests: [], waitlist: [],
-  });
+  const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [hasLoadIssue, setHasLoadIssue] = useState(false);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
     setHasLoadIssue(false);
-    const responses = await Promise.allSettled([
-      authFetch('/api/portfolio/projects?all=true'),
-      authFetch('/api/blog/admin'),
-      authFetch('/api/commissions'),
-      authFetch('/api/waitlist'),
-    ]);
-
-    const [projects, posts, requests, waitlist] = responses.map((response, index) => {
-      if (response.status !== 'fulfilled') return [];
-      return listFromResponse(response.value, ['projects', 'posts', 'commissions', 'waitlist'][index]);
-    });
-
-    setOverview({ projects, posts, requests, waitlist });
-    setHasLoadIssue(responses.some((response) => response.status === 'rejected'));
-    setLoading(false);
+    try {
+      const response = await authFetch('/api/admin/summary');
+      setOverview(response);
+    } catch {
+      setOverview(null);
+      setHasLoadIssue(true);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { loadOverview(); }, [loadOverview]);
 
-  const metrics = useMemo(() => {
-    const newRequests = overview.requests.filter((request) => String(request.status || 'pending').toLowerCase() === 'pending');
-    return {
-      totalProjects: overview.projects.length,
-      publishedProjects: countPublished(overview.projects),
-      totalPosts: overview.posts.length,
-      publishedPosts: countPublished(overview.posts),
-      newRequests,
-    };
-  }, [overview]);
+  const metrics = useMemo(() => ({
+    totalProjects: overview?.portfolio?.total ?? 0,
+    publishedProjects: overview?.portfolio?.published ?? 0,
+    totalPosts: overview?.blog?.total ?? 0,
+    publishedPosts: overview?.blog?.published ?? 0,
+    pendingRequests: overview?.commissions?.pending ?? 0,
+    totalRequests: overview?.commissions?.total ?? 0,
+    totalWaitlist: overview?.waitlist?.total ?? 0,
+    newRequests: overview?.commissions?.latestPending ?? [],
+  }), [overview]);
 
   return (
     <section className="ienyell-admin-page ienyell-admin-overview">
@@ -98,12 +78,12 @@ export default function AdminDashboardPage() {
         </Link>
         <Link href="/admin/commissions" className="ienyell-admin-metric-card is-accent">
           <span>Commission requests</span>
-          <strong>{loading ? '—' : metrics.newRequests.length}</strong>
-          <small>{loading ? 'Loading requests…' : `${overview.requests.length} in the full archive`}</small>
+          <strong>{loading ? '—' : metrics.pendingRequests}</strong>
+          <small>{loading ? 'Loading requests…' : `${metrics.totalRequests} in the full archive`}</small>
         </Link>
         <Link href="/admin/waitlist" className="ienyell-admin-metric-card">
           <span>Waitlist</span>
-          <strong>{loading ? '—' : overview.waitlist.length}</strong>
+          <strong>{loading ? '—' : metrics.totalWaitlist}</strong>
           <small>People to keep in mind</small>
         </Link>
       </div>
@@ -118,8 +98,8 @@ export default function AdminDashboardPage() {
             <div className="ienyell-admin-recent-list">
               {metrics.newRequests.slice(0, 4).map((request) => (
                 <Link href="/admin/commissions" key={request.id} className="ienyell-admin-recent-item">
-                  <span><strong>{requestName(request)}</strong><small>{request.service || request.category || request.wizard || 'Custom commission'}</small></span>
-                  <time>{formatDate(request.receivedAt || request.submittedAt)}</time>
+                  <span><strong>{request?.name || 'Unnamed request'}</strong><small>{request?.type || 'Custom commission'}</small></span>
+                  <time>{formatDate(request?.receivedAt)}</time>
                 </Link>
               ))}
             </div>
