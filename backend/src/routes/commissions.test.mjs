@@ -316,3 +316,95 @@ describe('commissions optional pagination', () => {
     expect(prisma.commissionRequest.findMany.mock.calls[0][0].where).toEqual({});
   });
 });
+
+describe('commissions service and date filters', () => {
+  const { filterOptions } = require('../utils/serviceFamilies.js');
+  const jsonEq = (key, value) => ({ payload: { path: [key], equals: value } });
+
+  function expectNoPrismaCalls() {
+    for (const method of Object.values(prisma.commissionRequest)) expect(method).not.toHaveBeenCalled();
+  }
+
+  it('CR1 lists ADMIN filter options without Prisma and with no-store', async () => {
+    const result = await request(app).get('/api/commissions/filters').expect(200);
+    expect(result.body).toEqual(filterOptions());
+    expect(result.headers['cache-control']).toBe('no-store');
+    expectNoPrismaCalls();
+  });
+  it.each([[{ authorized: false }, 401], [{ role: 'CLIENT' }, 403]])('CR2 protects filter options for %j', async (auth, status) => {
+    await request(createApp(auth)).get('/api/commissions/filters').expect(status);
+    expectNoPrismaCalls();
+  });
+  it('CR3 selects paged mode for merch and shares the exact where object', async () => {
+    const result = await request(app).get('/api/commissions?family=merch').expect(200);
+    expect(result.body).toEqual({ commissions: [router.toCommissionResponse(rows[0])], total: 1, page: 1, pageSize: 20, totalPages: 1 });
+    expect(result.headers['cache-control']).toBe('no-store');
+    const where = { AND: [{ OR: [
+      ['authors', 'merch'], ['personal', 'merch'], ['fandoms', 'custom-merch'], ['brands', 'merch'],
+    ].map(([category, subService]) => ({ AND: [jsonEq('category', category), jsonEq('subService', subService)] })) }] };
+    expect(prisma.commissionRequest.count).toHaveBeenCalledExactlyOnceWith({ where });
+    expect(prisma.commissionRequest.findMany).toHaveBeenCalledExactlyOnceWith({
+      where, orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }], skip: 0, take: 20,
+    });
+    expect(prisma.commissionRequest.count.mock.calls[0][0].where).toBe(prisma.commissionRequest.findMany.mock.calls[0][0].where);
+  });
+  it.each([
+    ['family=nope', 'Invalid service filter.'],
+    ['category=brands&subService=pet', 'Invalid service filter.'],
+    ['from=2026-13-01', 'Invalid date range.'],
+  ])('CR4 rejects %s before any Prisma method', async (query, error) => {
+    await request(app).get(`/api/commissions?${query}`).expect(400, { error });
+    expectNoPrismaCalls();
+  });
+  it('CR5 selects paged mode for a from date and passes a UTC Date to Prisma', async () => {
+    const result = await request(app).get('/api/commissions?from=2026-10-01').expect(200);
+    expect(Array.isArray(result.body.commissions)).toBe(true);
+    const where = prisma.commissionRequest.findMany.mock.calls[0][0].where;
+    expect(where.receivedAt.gte).toBeInstanceOf(Date);
+    expect(where).toEqual({ receivedAt: { gte: new Date('2026-10-01T06:00:00.000Z') } });
+    expect(prisma.commissionRequest.count.mock.calls[0][0].where).toBe(where);
+  });
+  it('CR6 computes classified and unclassified families in the legacy array', async () => {
+    rows = [row('COM-ABC123', { payload: { category: 'fandoms', subService: 'fanart' } }), row('COM-DEF456')];
+    const result = await request(app).get('/api/commissions').expect(200);
+    expect(Array.isArray(result.body)).toBe(true);
+    expect(result.body.map(({ serviceFamily }) => serviceFamily)).toEqual([
+      { id: 'illustration', label: 'Illustration' }, { id: 'unclassified', label: 'Unclassified' },
+    ]);
+    expect(prisma.commissionRequest.count).not.toHaveBeenCalled();
+    expect(prisma.commissionRequest.findMany).toHaveBeenCalledExactlyOnceWith({ orderBy: { receivedAt: 'desc' } });
+  });
+  it('CR7 replaces a stored forged serviceFamily with a fresh computed object', async () => {
+    rows[0].payload = { category: 'brands', subService: 'merch', serviceFamily: { id: 'fake' } };
+    const result = await request(app).get('/api/commissions/COM-ABC123').expect(200);
+    expect(result.body.serviceFamily).toEqual({ id: 'merch', label: 'Merch' });
+    const first = router.toCommissionResponse(rows[0]);
+    const second = router.toCommissionResponse(rows[0]);
+    expect(first.serviceFamily).not.toBe(second.serviceFamily);
+    first.serviceFamily.id = 'fake';
+    expect(router.toCommissionResponse(rows[0]).serviceFamily.id).toBe('merch');
+  });
+  it('CR8 strips serviceFamily from the public POST payload before create', async () => {
+    await request(app).post('/api/commissions').send(payload({
+      category: 'authors', subService: 'book-covers', serviceFamily: { id: 'fake' },
+    })).expect(201);
+    const stored = prisma.commissionRequest.create.mock.calls[0][0].data.payload;
+    expect(stored).not.toHaveProperty('serviceFamily');
+    expect(stored).toMatchObject({ category: 'authors', subService: 'book-covers' });
+  });
+  it('CR9 preserves id lookup and registers filters before the id route', async () => {
+    await request(app).get('/api/commissions/COM-ABC123').expect(200);
+    expect(prisma.commissionRequest.findUnique).toHaveBeenCalledExactlyOnceWith({ where: { id: 'COM-ABC123' } });
+    prisma.commissionRequest.findUnique.mockClear();
+    const result = await request(app).get('/api/commissions/filters').expect(200);
+    expect(result.body).toEqual(filterOptions());
+    expectNoPrismaCalls();
+  });
+  it.each([[{ authorized: false }, 401], [{ role: 'CLIENT' }, 403]])('CR10 authenticates before filter parsing for %j', async (auth, status) => {
+    const filters = require('../utils/commissionFilters.js');
+    const parse = vi.spyOn(filters, 'buildCommissionWhere');
+    await request(createApp(auth)).get('/api/commissions?family=nope&from=bad').expect(status);
+    expect(parse).not.toHaveBeenCalled();
+    expectNoPrismaCalls();
+  });
+});
