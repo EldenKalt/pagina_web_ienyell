@@ -532,8 +532,19 @@ describe('commissions CSV export', () => {
   });
   it('EX10 accepts exactly 5000 rows', async () => {
     prisma.commissionRequest.findMany.mockResolvedValueOnce(Array.from({ length: 5000 }, () => row()));
-    const result = await exportRequest().expect(200);
-    expect(result.text.split('\r\n')).toHaveLength(5002);
+    // Native fetch instead of supertest: supertest can stall on large bodies under parallel load (T002b).
+    const server = await new Promise((resolve) => { const instance = app.listen(0, '127.0.0.1', () => resolve(instance)); });
+    try {
+      const response = await fetch(`http://127.0.0.1:${server.address().port}/api/commissions/export`, {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      });
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      expect(text.split('\r\n')).toHaveLength(5002);
+    } finally {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    }
   }, 15000);
   it('EX10b rejects a body exceeding 4000000 UTF-8 bytes', async () => {
     prisma.commissionRequest.findMany.mockResolvedValueOnce(Array.from({ length: 200 }, () => row('COM-ABC123', {
