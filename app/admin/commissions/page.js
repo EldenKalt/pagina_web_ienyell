@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
-import { authFetch, getApiBase } from '../../../lib/authHelper';
+import { authFetch, authFetchBlob, getApiBase } from '../../../lib/authHelper';
 
 const STATUS_OPTIONS = [
   ['pending', 'New'],
@@ -13,6 +13,20 @@ const STATUS_OPTIONS = [
 ];
 
 const pageSize = 20;
+
+function buildFilterParams(query, status, family, category, subService, from, to) {
+  const params = new URLSearchParams();
+  if (query.trim()) params.set('q', query.trim());
+  if (status !== 'all') params.set('status', status);
+  if (family !== 'all') params.set('family', family);
+  if (category !== 'all') {
+    params.set('category', category);
+    if (subService !== 'all') params.set('subService', subService);
+  }
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  return params;
+}
 
 function formatDate(value) {
   if (!value) return 'No date recorded';
@@ -58,9 +72,40 @@ export default function CommissionsAdminPage() {
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [serviceOptions, setServiceOptions] = useState(null);
+  const [serviceFiltersUnavailable, setServiceFiltersUnavailable] = useState(false);
+  const [family, setFamily] = useState('all');
+  const [category, setCategory] = useState('all');
+  const [subService, setSubService] = useState('all');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [debouncedFrom, setDebouncedFrom] = useState('');
+  const [debouncedTo, setDebouncedTo] = useState('');
+  const [includeName, setIncludeName] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState(null);
   const [error, setError] = useState('');
+
+  const invalidDateRange = Boolean(debouncedFrom && debouncedTo && debouncedFrom > debouncedTo);
+  const serviceFiltersDisabled = !serviceOptions || serviceFiltersUnavailable;
+  const subServices = serviceOptions?.categories.find((option) => option.id === category)?.subServices || [];
+
+  useEffect(() => {
+    const controller = new AbortController();
+    async function loadServiceOptions() {
+      try {
+        const response = await authFetch('/api/commissions/filters', { signal: controller.signal });
+        if (!controller.signal.aborted) setServiceOptions(response);
+      } catch (requestError) {
+        if (!controller.signal.aborted && requestError?.name !== 'AbortError') {
+          setServiceFiltersUnavailable(true);
+        }
+      }
+    }
+    loadServiceOptions();
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     const trimmedQuery = query.trim();
@@ -73,10 +118,24 @@ export default function CommissionsAdminPage() {
   }, [query, debouncedQuery]);
 
   useEffect(() => {
+    if (from === debouncedFrom && to === debouncedTo) return;
+    const timer = setTimeout(() => {
+      setDebouncedFrom(from);
+      setDebouncedTo(to);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [from, to, debouncedFrom, debouncedTo]);
+
+  useEffect(() => {
+    if (invalidDateRange) {
+      setLoading(false);
+      return;
+    }
     const controller = new AbortController();
-    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
-    if (debouncedQuery.trim()) params.set('q', debouncedQuery.trim());
-    if (statusFilter !== 'all') params.set('status', statusFilter);
+    const params = buildFilterParams(debouncedQuery, statusFilter, family, category, subService, debouncedFrom, debouncedTo);
+    params.set('page', String(page));
+    params.set('pageSize', String(pageSize));
 
     async function loadRequests() {
       setLoading(true);
@@ -101,9 +160,48 @@ export default function CommissionsAdminPage() {
 
     loadRequests();
     return () => controller.abort();
-  }, [page, debouncedQuery, statusFilter]);
+  }, [page, debouncedQuery, statusFilter, family, category, subService, debouncedFrom, debouncedTo, invalidDateRange]);
 
   const selectedRequest = requests.find((request) => request.id === selectedId) || requests[0] || null;
+
+  function clearFilters() {
+    setFamily('all');
+    setCategory('all');
+    setSubService('all');
+    setFrom('');
+    setTo('');
+    setDebouncedFrom('');
+    setDebouncedTo('');
+    setPage(1);
+  }
+
+  async function exportCsv() {
+    if (exporting || invalidDateRange) return;
+    setExporting(true);
+    setError('');
+    try {
+      const params = buildFilterParams(debouncedQuery, statusFilter, family, category, subService, debouncedFrom, debouncedTo);
+      if (includeName) params.set('includeName', 'true');
+      const blob = await authFetchBlob(`/api/commissions/export?${params}`);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      try {
+        const today = new Date();
+        const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        link.href = url;
+        link.download = `commissions-${date}.csv`;
+        document.body.appendChild(link);
+        link.click();
+      } finally {
+        link.remove();
+        URL.revokeObjectURL(url);
+      }
+    } catch (exportError) {
+      setError(exportError?.data?.error || 'The export could not be created.');
+    } finally {
+      setExporting(false);
+    }
+  }
 
   async function updateStatus(request, status) {
     setSavingId(request.id);
@@ -133,7 +231,7 @@ export default function CommissionsAdminPage() {
         <span className="ienyell-admin-count">{total} total</span>
       </header>
 
-      <div className="ienyell-admin-toolbar">
+      <div className="ienyell-admin-toolbar ienyell-admin-requests-toolbar">
         <label className="ienyell-admin-search-label">
           <span className="sr-only">Search commission requests</span>
           <input
@@ -154,6 +252,61 @@ export default function CommissionsAdminPage() {
             {STATUS_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </label>
+        <div className="ienyell-admin-filters">
+          <label className="ienyell-admin-select-label">
+            <span>Family</span>
+            <select value={family} disabled={serviceFiltersDisabled} onChange={(event) => {
+              setFamily(event.target.value);
+              setPage(1);
+            }}>
+              <option value="all">All families</option>
+              {(serviceOptions?.families || []).map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+            </select>
+          </label>
+          <label className="ienyell-admin-select-label">
+            <span>Category</span>
+            <select value={category} disabled={serviceFiltersDisabled} onChange={(event) => {
+              setCategory(event.target.value);
+              setSubService('all');
+              setPage(1);
+            }}>
+              <option value="all">All categories</option>
+              {(serviceOptions?.categories || []).map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+            </select>
+          </label>
+          <label className="ienyell-admin-select-label">
+            <span>Sub-service</span>
+            <select value={subService} disabled={serviceFiltersDisabled || category === 'all'} onChange={(event) => {
+              setSubService(event.target.value);
+              setPage(1);
+            }}>
+              <option value="all">All sub-services</option>
+              {subServices.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+            </select>
+          </label>
+          <label className="ienyell-admin-select-label">
+            <span>From</span>
+            <input className="ienyell-admin-input" type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+          </label>
+          <label className="ienyell-admin-select-label">
+            <span>To</span>
+            <input className="ienyell-admin-input" type="date" value={to} onChange={(event) => setTo(event.target.value)} />
+          </label>
+          {invalidDateRange ? <p className="ienyell-admin-notice is-error" role="alert">"From" must be on or before "To".</p> : null}
+          <button type="button" onClick={clearFilters}>Clear filters</button>
+        </div>
+      </div>
+
+      {serviceFiltersUnavailable ? <p className="ienyell-admin-notice">Service filters are unavailable.</p> : null}
+
+      <div className="ienyell-admin-export">
+        <label>
+          <input type="checkbox" checked={includeName} onChange={(event) => setIncludeName(event.target.checked)} />
+          <span>Include client name</span>
+        </label>
+        <button type="button" onClick={exportCsv} disabled={exporting || invalidDateRange}>
+          {exporting ? 'Exporting…' : 'Export CSV'}
+        </button>
       </div>
 
       {error ? <p className="ienyell-admin-notice is-error" role="alert">{error}</p> : null}
@@ -179,7 +332,7 @@ export default function CommissionsAdminPage() {
                     <strong>{requestName(request)}</strong>
                     <span className={`ienyell-admin-status is-${status}`}>{status}</span>
                   </span>
-                  <span>{requestType(request)}</span>
+                  <span>{request.serviceFamily?.label || requestType(request)}</span>
                   <small>{formatDate(request.receivedAt || request.submittedAt)}</small>
                 </button>
               );
@@ -190,7 +343,7 @@ export default function CommissionsAdminPage() {
             <article className="ienyell-admin-request-detail">
               <div className="ienyell-admin-request-detail-top">
                 <div>
-                  <p className="ienyell-admin-eyebrow">{requestType(selectedRequest)}</p>
+                  <p className="ienyell-admin-eyebrow">{selectedRequest.serviceFamily?.label || requestType(selectedRequest)}</p>
                   <h2>{requestName(selectedRequest)}</h2>
                   {requestEmail(selectedRequest) ? (
                     <a href={`mailto:${requestEmail(selectedRequest)}`}>{requestEmail(selectedRequest)}</a>
