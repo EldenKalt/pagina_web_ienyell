@@ -7,7 +7,8 @@ const prisma = require('../lib/prisma');
 const { authenticateToken, authorizeRole } = require('../middleware/auth');
 const { parsePage, parsePageSize, buildPageMeta } = require('../utils/adminListQuery');
 const { familyFor, filterOptions } = require('../utils/serviceFamilies');
-const { buildCommissionWhere, COMMISSION_STATUSES, PAGED_MODE_KEYS } = require('../utils/commissionFilters');
+const { buildCommissionWhere, COMMISSION_STATUSES, PAGED_MODE_KEYS, ADMIN_UTC_OFFSET_MINUTES } = require('../utils/commissionFilters');
+const { toCsv } = require('../utils/csv');
 
 const router = express.Router();
 const UPLOAD_ROOT = process.env.COMMISSIONS_UPLOAD_ROOT || path.join(__dirname, '../../uploads');
@@ -194,6 +195,49 @@ router.get('/', ...adminOnly, async (req, res, next) => {
 router.get('/filters', ...adminOnly, (_req, res) => {
   res.set('Cache-Control', 'no-store');
   return res.json(filterOptions());
+});
+router.get('/export', ...adminOnly, async (req, res, next) => {
+  if (req.get('X-Requested-With') !== 'XMLHttpRequest') return res.status(403).json({ error: 'Forbidden.' });
+  const result = buildCommissionWhere(req.query);
+  if (result.error) return res.status(400).json({ error: result.error });
+  const includeName = req.query.includeName === 'true';
+  const select = { id: true, status: true, payload: true, receivedAt: true };
+  if (includeName) select.name = true;
+  try {
+    const records = await prisma.commissionRequest.findMany({
+      where: result.where, orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }], select, take: 5001,
+    });
+    if (records.length > 5000) return res.status(400).json({ error: 'Too many rows to export. Narrow the filters.' });
+    const HEADER = ['id', 'received_date', 'received_at_utc', 'family', 'category', 'sub_service', 'specific_services', 'status', 'estimate_min_usd', 'estimate_max_usd'];
+    if (includeName) HEADER.push('client_name');
+    const rows = records.map((row) => {
+      const p = isPlainObject(row.payload) ? row.payload : {};
+      const receivedAt = row.receivedAt;
+      const min = p.calculator?.estimate?.min;
+      const max = p.calculator?.estimate?.max;
+      const values = [
+        row.id,
+        new Date(receivedAt.getTime() + ADMIN_UTC_OFFSET_MINUTES * 60000).toISOString().slice(0, 10),
+        receivedAt.toISOString(),
+        familyFor(p.category, p.subService).label,
+        typeof p.category === 'string' ? p.category : '',
+        typeof p.subService === 'string' ? p.subService : '',
+        Array.isArray(p.specificServices) ? p.specificServices.filter((item) => typeof item === 'string').join('; ') : '',
+        row.status,
+        Number.isFinite(min) ? min : '',
+        Number.isFinite(max) ? max : '',
+      ];
+      if (includeName) values.push(row.name);
+      return values;
+    });
+    const body = toCsv(HEADER, rows);
+    if (Buffer.byteLength(body, 'utf8') > 4000000) return res.status(400).json({ error: 'Export too large. Narrow the filters.' });
+    const date = new Date(Date.now() + ADMIN_UTC_OFFSET_MINUTES * 60000).toISOString().slice(0, 10);
+    res.set('Content-Type', 'text/csv; charset=utf-8');
+    res.set('Content-Disposition', `attachment; filename="commissions-${date}.csv"`);
+    res.set('Cache-Control', 'no-store');
+    return res.send(body);
+  } catch (error) { return next(storageError(error)); }
 });
 router.get('/:id', ...adminOnly, async (req, res, next) => {
   if (!VALID_ID.test(req.params.id)) return res.status(404).json({ error: 'Commission request not found.' });

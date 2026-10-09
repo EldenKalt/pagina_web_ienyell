@@ -408,3 +408,196 @@ describe('commissions service and date filters', () => {
     expectNoPrismaCalls();
   });
 });
+
+describe('commissions CSV export', () => {
+  const HEADER = ['id', 'received_date', 'received_at_utc', 'family', 'category', 'sub_service', 'specific_services', 'status', 'estimate_min_usd', 'estimate_max_usd'];
+  const headerLine = (includeName = false) => '\uFEFF' + [...HEADER, ...(includeName ? ['client_name'] : [])].map((cell) => `"${cell}"`).join(',') + '\r\n';
+  const exportRequest = (query = '', instance = app) => request(instance)
+    .get(`/api/commissions/export${query}`).set('X-Requested-With', 'XMLHttpRequest');
+  function expectNoPrismaCalls() {
+    for (const method of Object.values(prisma.commissionRequest)) expect(method).not.toHaveBeenCalled();
+  }
+
+  it('EX1 returns the ADMIN CSV contract with two synthetic rows', async () => {
+    rows.push(row('COM-DEF456', { receivedAt: new Date('2026-02-01T00:00:00Z') }));
+    const result = await exportRequest().expect(200);
+    expect(result.headers['content-type']).toBe('text/csv; charset=utf-8');
+    expect(result.headers['cache-control']).toBe('no-store');
+    expect(result.headers['content-disposition']).toMatch(/^attachment; filename="commissions-\d{4}-\d{2}-\d{2}\.csv"$/);
+    expect(result.text.startsWith('\uFEFF')).toBe(true);
+    expect(result.text.startsWith(headerLine())).toBe(true);
+    expect(result.text).not.toContain('client_name');
+    expect(result.text.split('\r\n')).toHaveLength(4);
+    expect(result.text.indexOf('COM-DEF456')).toBeLessThan(result.text.indexOf('COM-ABC123'));
+  });
+  it('EX1 returns only the header when there are zero rows', async () => {
+    prisma.commissionRequest.findMany.mockResolvedValueOnce([]);
+    const result = await exportRequest().expect(200);
+    expect(result.text).toBe(headerLine());
+  });
+  it('EX1 computes the filename date at UTC minus six hours', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(new Date('2026-10-01T03:00:00Z').getTime());
+    try {
+      const result = await exportRequest().expect(200);
+      expect(result.headers['content-disposition']).toBe('attachment; filename="commissions-2026-09-30.csv"');
+    } finally { vi.restoreAllMocks(); }
+  });
+  it('EX2 queries once with the exact projection and limit, without count or skip', async () => {
+    rows.push(row('COM-DEF456'));
+    prisma.commissionRequest.findMany.mockImplementationOnce(async ({ select }) => rows.map((entry) => Object.fromEntries(
+      Object.keys(select).map((key) => [key, entry[key]]),
+    )));
+    await exportRequest().expect(200);
+    expect(prisma.commissionRequest.findMany).toHaveBeenCalledExactlyOnceWith({
+      where: {}, orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }],
+      select: { id: true, status: true, payload: true, receivedAt: true }, take: 5001,
+    });
+    expect(prisma.commissionRequest.findMany.mock.calls[0][0]).not.toHaveProperty('skip');
+    expect(prisma.commissionRequest.count).not.toHaveBeenCalled();
+  });
+  it('EX3 selects and appends only the optional client name', async () => {
+    const result = await exportRequest('?includeName=true').expect(200);
+    expect(prisma.commissionRequest.findMany.mock.calls[0][0].select).toEqual({
+      id: true, status: true, payload: true, receivedAt: true, name: true,
+    });
+    expect(prisma.commissionRequest.findMany.mock.calls[0][0].select).not.toHaveProperty('email');
+    expect(result.text.startsWith(headerLine(true))).toBe(true);
+    expect(result.text).toContain(',"Synthetic Artist"\r\n');
+  });
+  it.each(['?includeName=1', '?includeName=true&includeName=true'])('EX4 excludes names for %s', async (query) => {
+    const result = await exportRequest(query).expect(200);
+    expect(prisma.commissionRequest.findMany.mock.calls[0][0].select).not.toHaveProperty('name');
+    expect(result.text.startsWith(headerLine())).toBe(true);
+    expect(result.text).not.toContain('Synthetic Artist');
+  });
+  it.each(['', '?includeName=true'])('EX5 never exports email with query %j', async (query) => {
+    const result = await exportRequest(query).expect(200);
+    expect(rows[0].name).toBe('Synthetic Artist');
+    expect(rows[0].email).toBe('artist@example.com');
+    expect(rows[0].payload.contact.email).toBe('artist@example.com');
+    expect(result.text).not.toContain('example.com');
+    expect(prisma.commissionRequest.findMany.mock.calls[0][0].select).not.toHaveProperty('email');
+  });
+  it('EX5 reads only the permitted payload keys and no unselected row name or email', async () => {
+    const forbiddenRead = () => { throw new Error('SYNTH_FORBIDDEN_READ'); };
+    const safePayload = { category: 'authors', subService: 'book-covers' };
+    Object.defineProperties(safePayload, { contact: { get: forbiddenRead }, description: { get: forbiddenRead } });
+    const record = row('COM-ABC123', { payload: safePayload });
+    Object.defineProperties(record, { name: { get: forbiddenRead }, email: { get: forbiddenRead } });
+    prisma.commissionRequest.findMany.mockResolvedValueOnce([record]);
+    await exportRequest().expect(200);
+  });
+  it('EX6 maps the local date, family, string services and finite estimates in order', async () => {
+    rows[0] = row('COM-ABC123', {
+      receivedAt: new Date('2026-10-01T03:00:00Z'),
+      payload: { category: 'authors', subService: 'book-covers', specificServices: ['concept-art', 7, 'visual-key'],
+        calculator: { estimate: { min: 100, max: 250 } } },
+    });
+    const result = await exportRequest().expect(200);
+    expect(result.text).toBe(headerLine() + '"COM-ABC123","2026-09-30","2026-10-01T03:00:00.000Z","Illustration","authors","book-covers","concept-art; visual-key","pending","100","250"\r\n');
+  });
+  it.each([null, 'synthetic', 7, [], new Date('2026-01-01T00:00:00Z')])('EX7 safely handles non-plain payload %j', async (payload) => {
+    rows[0].payload = payload;
+    const result = await exportRequest().expect(200);
+    expect(result.text).toBe(headerLine() + '"COM-ABC123","2025-12-31","2026-01-01T00:00:00.000Z","Unclassified","","","","pending","",""\r\n');
+  });
+  it('EX7 omits non-string fields and non-finite or non-numeric estimates', async () => {
+    rows[0].payload = { category: 7, subService: [], specificServices: 'synthetic', calculator: { estimate: { min: '100', max: Infinity } } };
+    const first = await exportRequest().expect(200);
+    expect(first.text).toContain('"Unclassified","","","","pending","",""\r\n');
+    rows[0].payload = { calculator: { estimate: { min: NaN, max: null } } };
+    const second = await exportRequest().expect(200);
+    expect(second.text).toContain('"pending","",""\r\n');
+    rows[0].payload = { calculator: { estimate: { min: -5, max: 0 } } };
+    const third = await exportRequest().expect(200);
+    expect(third.text).toContain('"pending","-5","0"\r\n');
+  });
+  it('EX8 neutralizes a formula in the optional name', async () => {
+    rows[0].name = '=1+1';
+    const result = await exportRequest('?includeName=true').expect(200);
+    expect(result.text).toContain(',"\'=1+1"\r\n');
+  });
+  it.each([
+    ['?family=nope', 'Invalid service filter.'],
+    ['?from=2026-02-30', 'Invalid date range.'],
+  ])('EX9 rejects %s without any Prisma call', async (query, error) => {
+    await exportRequest(query).expect(400, { error });
+    expectNoPrismaCalls();
+  });
+  it('EX10 rejects more than 5000 rows', async () => {
+    prisma.commissionRequest.findMany.mockResolvedValueOnce(Array.from({ length: 5001 }, () => row()));
+    await exportRequest().expect(400, { error: 'Too many rows to export. Narrow the filters.' });
+    expect(prisma.commissionRequest.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.commissionRequest.count).not.toHaveBeenCalled();
+  });
+  it('EX10 accepts exactly 5000 rows', async () => {
+    prisma.commissionRequest.findMany.mockResolvedValueOnce(Array.from({ length: 5000 }, () => row()));
+    const result = await exportRequest().expect(200);
+    expect(result.text.split('\r\n')).toHaveLength(5002);
+  }, 15000);
+  it('EX10b rejects a body exceeding 4000000 UTF-8 bytes', async () => {
+    prisma.commissionRequest.findMany.mockResolvedValueOnce(Array.from({ length: 200 }, () => row('COM-ABC123', {
+      payload: { specificServices: ['x'.repeat(30000)] },
+    })));
+    await exportRequest().expect(400, { error: 'Export too large. Narrow the filters.' });
+    expect(prisma.commissionRequest.count).not.toHaveBeenCalled();
+  });
+  it('EX10b measures bytes rather than string length', async () => {
+    prisma.commissionRequest.findMany.mockResolvedValueOnce(Array.from({ length: 100 }, () => row('COM-ABC123', {
+      payload: { specificServices: ['\u00E9'.repeat(25000)] },
+    })));
+    await exportRequest().expect(400, { error: 'Export too large. Narrow the filters.' });
+  });
+  it.each([[{ authorized: false }, 401], [{ role: 'CLIENT' }, 403]])('EX11 protects export for %j', async (auth, status) => {
+    await exportRequest('?family=nope', createApp(auth)).expect(status);
+    expectNoPrismaCalls();
+  });
+  it('EX12 passes a sanitized storage error to next', async () => {
+    prisma.commissionRequest.findMany.mockRejectedValueOnce(new Error('SYNTH_SECRET_ARG'));
+    const result = await exportRequest().expect(500);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toBe('Commission storage error');
+    expect(JSON.stringify(result.body)).not.toContain('SYNTH_SECRET_ARG');
+    expect(result.text).not.toContain('SYNTH_SECRET_ARG');
+  });
+  it('EX13 applies merch and status while ignoring pagination and unknown keys', async () => {
+    const jsonEq = (key, value) => ({ payload: { path: [key], equals: value } });
+    await exportRequest('?family=merch&status=pending&page=3&pageSize=1&unknown=ignored').expect(200);
+    const where = { status: 'pending', AND: [{ OR: [
+      ['authors', 'merch'], ['personal', 'merch'], ['fandoms', 'custom-merch'], ['brands', 'merch'],
+    ].map(([category, subService]) => ({ AND: [jsonEq('category', category), jsonEq('subService', subService)] })) }] };
+    expect(prisma.commissionRequest.findMany).toHaveBeenCalledExactlyOnceWith({
+      where, orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }],
+      select: { id: true, status: true, payload: true, receivedAt: true }, take: 5001,
+    });
+    expect(prisma.commissionRequest.count).not.toHaveBeenCalled();
+  });
+  it('EX13 shares the list filter builder for search, category, sub-service and dates', async () => {
+    const { buildCommissionWhere } = require('../utils/commissionFilters.js');
+    const query = { q: 'Synthetic', category: 'authors', subService: 'book-covers', from: '2026-09-30', to: '2026-10-01' };
+    await exportRequest().query(query).expect(200);
+    expect(prisma.commissionRequest.findMany.mock.calls[0][0].where).toEqual(buildCommissionWhere(query).where);
+    expect(prisma.commissionRequest.count).not.toHaveBeenCalled();
+  });
+  it('EX14 registers export before id lookup and preserves filters', async () => {
+    await exportRequest().expect(200);
+    const result = await request(app).get('/api/commissions/filters').expect(200);
+    expect(result.body).toEqual(require('../utils/serviceFamilies.js').filterOptions());
+    expect(prisma.commissionRequest.findUnique).not.toHaveBeenCalled();
+    expect(prisma.commissionRequest.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.commissionRequest.count).not.toHaveBeenCalled();
+  });
+  it('EX15 neutralizes formulas in payload cells', async () => {
+    rows[0].payload = { category: '=1+1', specificServices: ['@x'] };
+    const result = await exportRequest().expect(200);
+    expect(result.text).toContain('"Unclassified","\'=1+1","","\'@x","pending"');
+  });
+  it('EX16 rejects ADMIN export without the required header before filter parsing', async () => {
+    await request(app).get('/api/commissions/export?family=nope').expect(403, { error: 'Forbidden.' });
+    expectNoPrismaCalls();
+  });
+  it('EX16 rejects an incorrect header value', async () => {
+    await request(app).get('/api/commissions/export').set('X-Requested-With', 'xmlhttprequest').expect(403, { error: 'Forbidden.' });
+    expectNoPrismaCalls();
+  });
+});
