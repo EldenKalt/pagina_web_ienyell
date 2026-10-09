@@ -5,7 +5,10 @@ const multer = require('multer');
 const path = require('path');
 const prisma = require('../lib/prisma');
 const { authenticateToken, authorizeRole } = require('../middleware/auth');
-const { parsePage, parsePageSize, parseSearch, buildPageMeta } = require('../utils/adminListQuery');
+const { parsePage, parsePageSize, buildPageMeta } = require('../utils/adminListQuery');
+const { familyFor, filterOptions } = require('../utils/serviceFamilies');
+const { buildCommissionWhere, COMMISSION_STATUSES, PAGED_MODE_KEYS, ADMIN_UTC_OFFSET_MINUTES } = require('../utils/commissionFilters');
+const { toCsv } = require('../utils/csv');
 
 const router = express.Router();
 const UPLOAD_ROOT = process.env.COMMISSIONS_UPLOAD_ROOT || path.join(__dirname, '../../uploads');
@@ -15,8 +18,7 @@ const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const rateLimits = new Map();
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 const RATE_LIMIT_MAX = 5;
-const COMMISSION_STATUSES = new Set(['pending', 'reviewing', 'accepted', 'declined', 'closed']);
-const RESERVED = new Set(['id', 'status', 'referenceFiles', 'receivedAt', 'updatedAt']);
+const RESERVED = new Set(['id', 'status', 'referenceFiles', 'receivedAt', 'updatedAt', 'serviceFamily']);
 const VALID_ID = /^COM-[0-9A-F]{6}$/;
 const adminOnly = [authenticateToken, authorizeRole('ADMIN')];
 
@@ -67,6 +69,7 @@ function toCommissionResponse(row) {
     referenceFiles: row.referenceFiles,
     receivedAt: new Date(row.receivedAt).toISOString(),
     ...(row.updatedAt && { updatedAt: new Date(row.updatedAt).toISOString() }),
+    serviceFamily: { ...familyFor(payload.category, payload.subService) },
   };
 }
 function storageError(error, recordId) {
@@ -165,7 +168,7 @@ router.post('/', rateLimit, (req, res, next) => {
   });
 });
 router.get('/', ...adminOnly, async (req, res, next) => {
-  if (!['page', 'pageSize', 'q', 'status'].some((key) => Object.hasOwn(req.query, key))) {
+  if (!PAGED_MODE_KEYS.some((key) => Object.hasOwn(req.query, key))) {
     try {
       const rows = await prisma.commissionRequest.findMany({ orderBy: { receivedAt: 'desc' } });
       return res.json(rows.map(toCommissionResponse));
@@ -174,23 +177,9 @@ router.get('/', ...adminOnly, async (req, res, next) => {
 
   const page = parsePage(req.query.page);
   const pageSize = parsePageSize(req.query.pageSize);
-  const q = parseSearch(req.query.q);
-  const where = {};
-  if (Object.hasOwn(req.query, 'status')) {
-    if (typeof req.query.status !== 'string') {
-      return res.status(400).json({ error: 'Invalid commission status.' });
-    }
-    const status = req.query.status.trim().toLowerCase();
-    if (status && status !== 'all') {
-      if (!COMMISSION_STATUSES.has(status)) {
-        return res.status(400).json({ error: 'Invalid commission status.' });
-      }
-      where.status = status;
-    }
-  }
-  if (q) {
-    where.OR = ['id', 'name', 'email'].map((field) => ({ [field]: { contains: q, mode: 'insensitive' } }));
-  }
+  const result = buildCommissionWhere(req.query);
+  if (result.error) return res.status(400).json({ error: result.error });
+  const where = result.where;
   try {
     const orderBy = [{ receivedAt: 'desc' }, { id: 'desc' }];
     const skip = (page - 1) * pageSize;
@@ -201,6 +190,53 @@ router.get('/', ...adminOnly, async (req, res, next) => {
     ]);
     res.set('Cache-Control', 'no-store');
     return res.json({ commissions: rows.map(toCommissionResponse), ...buildPageMeta(total, page, pageSize) });
+  } catch (error) { return next(storageError(error)); }
+});
+router.get('/filters', ...adminOnly, (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  return res.json(filterOptions());
+});
+router.get('/export', ...adminOnly, async (req, res, next) => {
+  if (req.get('X-Requested-With') !== 'XMLHttpRequest') return res.status(403).json({ error: 'Forbidden.' });
+  const result = buildCommissionWhere(req.query);
+  if (result.error) return res.status(400).json({ error: result.error });
+  const includeName = req.query.includeName === 'true';
+  const select = { id: true, status: true, payload: true, receivedAt: true };
+  if (includeName) select.name = true;
+  try {
+    const records = await prisma.commissionRequest.findMany({
+      where: result.where, orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }], select, take: 5001,
+    });
+    if (records.length > 5000) return res.status(400).json({ error: 'Too many rows to export. Narrow the filters.' });
+    const HEADER = ['id', 'received_date', 'received_at_utc', 'family', 'category', 'sub_service', 'specific_services', 'status', 'estimate_min_usd', 'estimate_max_usd'];
+    if (includeName) HEADER.push('client_name');
+    const rows = records.map((row) => {
+      const p = isPlainObject(row.payload) ? row.payload : {};
+      const receivedAt = row.receivedAt;
+      const min = p.calculator?.estimate?.min;
+      const max = p.calculator?.estimate?.max;
+      const values = [
+        row.id,
+        new Date(receivedAt.getTime() + ADMIN_UTC_OFFSET_MINUTES * 60000).toISOString().slice(0, 10),
+        receivedAt.toISOString(),
+        familyFor(p.category, p.subService).label,
+        typeof p.category === 'string' ? p.category : '',
+        typeof p.subService === 'string' ? p.subService : '',
+        Array.isArray(p.specificServices) ? p.specificServices.filter((item) => typeof item === 'string').join('; ') : '',
+        row.status,
+        Number.isFinite(min) ? min : '',
+        Number.isFinite(max) ? max : '',
+      ];
+      if (includeName) values.push(row.name);
+      return values;
+    });
+    const body = toCsv(HEADER, rows);
+    if (Buffer.byteLength(body, 'utf8') > 4000000) return res.status(400).json({ error: 'Export too large. Narrow the filters.' });
+    const date = new Date(Date.now() + ADMIN_UTC_OFFSET_MINUTES * 60000).toISOString().slice(0, 10);
+    res.set('Content-Type', 'text/csv; charset=utf-8');
+    res.set('Content-Disposition', `attachment; filename="commissions-${date}.csv"`);
+    res.set('Cache-Control', 'no-store');
+    return res.send(body);
   } catch (error) { return next(storageError(error)); }
 });
 router.get('/:id', ...adminOnly, async (req, res, next) => {
